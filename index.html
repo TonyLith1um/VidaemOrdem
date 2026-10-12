@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Vida em Ordem</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#7a3f6d">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <h1>Vida em Ordem</h1>
+    <div class="topbtns">
+      <button id="install" class="chip" data-act="install" hidden>⬇ Instalar</button>
+      <button id="cloud" class="chip" data-act="cloud">☁️</button>
+    </div>
+  </header>
+  <nav id="nav" aria-label="Seções"></nav>
+  <main id="main"></main>
+</div>
+<div id="toast" role="status"></div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer onload="window.__gis&&window.__gis()"></script>
+</body>
+</html>
