@@ -467,10 +467,10 @@ function updateAccountUI() {
         </div>
         <div class="user-dropdown-sync">${syncLabel}</div>
         <div class="user-dropdown-actions">
-          <button data-act="openSettings">⚙️ Configurações (Tema, Fontes, Avisos)</button>
-          <button data-act="openapkguide">📱 Instalar App / Gerar APK</button>
-          <button data-act="forcesync">🔄 Sincronizar agora</button>
-          <button data-act="logout">🚪 Sair da conta</button>
+          <button type="button" data-act="openSettings">⚙️ Configurações (Tema, Fontes, Avisos)</button>
+          <button type="button" data-act="openapkguide">📱 Instalar App / Gerar APK</button>
+          <button type="button" data-act="forcesync">🔄 Sincronizar agora</button>
+          <button type="button" data-act="logout">🚪 Sair da conta</button>
         </div>`;
     }
   } else {
@@ -486,9 +486,9 @@ function updateAccountUI() {
           </div>
         </div>
         <div class="user-dropdown-actions">
-          <button class="pri" data-act="login" style="background:var(--accent);color:#fff">🔑 Entrar com Google</button>
-          <button data-act="openapkguide">📱 Instalar App / Gerar APK</button>
-          <button data-act="openSettings">⚙️ Configurações (Tema, Fontes, Avisos)</button>
+          <button type="button" class="pri" data-act="login" style="background:var(--accent);color:#fff">🔑 Entrar com Google</button>
+          <button type="button" data-act="openapkguide">📱 Instalar App / Gerar APK</button>
+          <button type="button" data-act="openSettings">⚙️ Configurações (Tema, Fontes, Avisos)</button>
         </div>`;
     }
   }
@@ -529,24 +529,87 @@ function initFirebaseAuth() {
 }
 
 /* =====================  Modais (Login, Configurações e APK)  ===================== */
+function renderGsiButton(containerId) {
+  if (window.google && google.accounts && google.accounts.id && window.firebaseBridge?.clientId) {
+    try {
+      google.accounts.id.initialize({
+        client_id: window.firebaseBridge.clientId,
+        callback: async (resp) => {
+          if (resp && resp.credential) {
+            try {
+              toast('Autenticando...');
+              await window.firebaseBridge.loginWithIdToken(resp.credential);
+              closeModal();
+              toast('Conectado com sucesso pelo Google ✓');
+            } catch (err) {
+              toast('Erro ao validar token Google: ' + err.message);
+            }
+          }
+        }
+      });
+      const el = document.getElementById(containerId);
+      if (el) {
+        google.accounts.id.renderButton(el, {
+          theme: 'outline',
+          size: 'large',
+          text: 'continue_with',
+          width: 280,
+          shape: 'pill'
+        });
+      }
+    } catch (e) {
+      console.warn('GSI renderButton error:', e);
+    }
+  }
+}
+
+function showOpenExternalLoginModal() {
+  const container = $('#modalContainer');
+  if (!container) return;
+  const targetUrl = window.location.href;
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal" style="text-align:center">
+        <div class="modal-head">
+          <h2 style="font-size:1.15rem">🔑 Conectar Conta Google</h2>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+        <p style="font-size:.92rem;color:var(--muted);margin:.6rem 0">O navegador bloqueou a janela pop-up de login dentro do quadro.</p>
+        <p style="font-size:.88rem">Você pode fazer login abrindo o aplicativo diretamente em uma nova aba do navegador:</p>
+        <div style="margin:1.2rem 0">
+          <a href="${esc(targetUrl)}" target="_blank" rel="noopener noreferrer" class="pri"
+            style="display:inline-block;text-decoration:none;padding:.7rem 1.4rem;border-radius:14px;color:#fff;background:var(--accent);font-weight:600">
+            ↗ Abrir em Nova Aba para Conectar
+          </a>
+        </div>
+        <button type="button" class="ghost sm" data-act="closeModal">Fechar</button>
+      </div>
+    </div>`;
+}
+
 function showWelcomeModal() {
   const container = $('#modalContainer');
   if (!container) return;
   container.innerHTML = `
     <div class="modal-backdrop" data-act="backdropClose">
-      <div class="modal welcome-card" onclick="event.stopPropagation()">
+      <div class="modal welcome-card">
         <div class="welcome-icon">✨</div>
         <h2>Vida em Ordem</h2>
         <p>Sua rotina, checklist, ciclo, estudos e hábitos organizados em um só lugar. Entre com sua conta Google para salvar tudo na nuvem e receber seus avisos!</p>
-        <div style="margin:1.4rem 0">
-          <button class="google-login-btn" data-act="login">
+        
+        <div id="gsiWelcomeContainer" style="display:flex;justify-content:center;margin:.8rem 0"></div>
+
+        <div style="margin:.8rem 0">
+          <button type="button" class="google-login-btn" data-act="login">
             <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
             Entrar com Google
           </button>
         </div>
-        <button class="ghost sm" data-act="dismissWelcome" style="margin-top:.4rem">Continuar sem login por enquanto</button>
+        <button type="button" class="ghost sm" data-act="dismissWelcome" style="margin-top:.4rem">Continuar sem login por enquanto</button>
       </div>
     </div>`;
+
+  setTimeout(() => renderGsiButton('gsiWelcomeContainer'), 100);
 }
 
 function openSettingsModal() {
@@ -565,10 +628,10 @@ function openSettingsModal() {
 
   container.innerHTML = `
     <div class="modal-backdrop" data-act="backdropClose">
-      <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal">
         <div class="modal-head">
           <h2>⚙️ Configurações</h2>
-          <button class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
         </div>
 
         <!-- 1. NOTIFICAÇÕES -->
@@ -580,8 +643,8 @@ function openSettingsModal() {
           <p class="note" style="margin:.3rem 0 .6rem">Receba alertas de compromissos, tarefas com horário, pílula e hábitos no seu aparelho.</p>
 
           <div class="row" style="margin-bottom:.6rem">
-            ${permGranted ? '' : '<button class="pri sm" data-act="reqnotif">🔔 Permitir Notificações no Sistema</button>'}
-            <button class="ghost sm" data-act="testnotif">🧪 Testar Notificação Agora</button>
+            ${permGranted ? '' : '<button type="button" class="pri sm" data-act="reqnotif">🔔 Permitir Notificações no Sistema</button>'}
+            <button type="button" class="ghost sm" data-act="testnotif">🧪 Testar Notificação Agora</button>
           </div>
 
           <div class="notif-settings-box">
@@ -617,8 +680,8 @@ function openSettingsModal() {
           <h3 style="font-size:1rem;margin-bottom:.4rem">📱 Aplicativo APK e Android</h3>
           <p class="note" style="margin-top:0">Transforme este app em um aplicativo no seu Android.</p>
           <div class="row">
-            <button class="pri sm" data-act="installFromSettings">⬇ Instalar no Dispositivo</button>
-            <button class="ghost sm" data-act="openapkguide">📖 Passo a passo do arquivo .APK</button>
+            <button type="button" class="pri sm" data-act="installFromSettings">⬇ Instalar no Dispositivo</button>
+            <button type="button" class="ghost sm" data-act="openapkguide">📖 Passo a passo do arquivo .APK</button>
           </div>
         </section>
 
@@ -684,8 +747,8 @@ function openSettingsModal() {
         </section>
 
         <div class="row" style="justify-content:flex-end">
-          <button class="ghost sm" data-act="resetAppearance">Restaurar Padrões</button>
-          <button class="pri sm" data-act="closeModal">Concluir</button>
+          <button type="button" class="ghost sm" data-act="resetAppearance">Restaurar Padrões</button>
+          <button type="button" class="pri sm" data-act="closeModal">Concluir</button>
         </div>
       </div>
     </div>`;
@@ -700,21 +763,21 @@ function showApkGuideModal() {
 
   container.innerHTML = `
     <div class="modal-backdrop" data-act="backdropClose">
-      <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal">
         <div class="modal-head">
           <h2>📱 Aplicativo APK e Android</h2>
-          <button class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
         </div>
 
         <div class="apk-card">
-          <h4> Opção 1: Instalação Direta no Celular (Recomendado)</h4>
+          <h4>📱 Opção 1: Instalação Direta no Celular (Recomendado)</h4>
           <p style="font-size:.88rem;color:var(--muted);margin-bottom:.5rem">O app já possui manifesto PWA completo e Service Worker ativo:</p>
           <ol class="apk-steps">
             <li>No navegador Chrome do Android, clique no botão <b>"⬇ Instalar"</b> no topo do app (ou no menu ⋮ do Chrome).</li>
             <li>Toque em <b>"Instalar aplicativo"</b> ou <b>"Adicionar à tela inicial"</b>.</li>
             <li>O aplicativo será instalado como app nativo com ícone independente, tela cheia e notificações!</li>
           </ol>
-          ${deferred ? '<button class="pri sm" data-act="install">Instalar Agora no Android</button>' : ''}
+          ${deferred ? '<button type="button" class="pri sm" data-act="install">Instalar Agora no Android</button>' : ''}
         </div>
 
         <div class="apk-card" style="margin-top:.8rem">
@@ -733,7 +796,7 @@ function showApkGuideModal() {
         </div>
 
         <div class="row" style="justify-content:flex-end;margin-top:1rem">
-          <button class="pri sm" data-act="closeModal">Entendi</button>
+          <button type="button" class="pri sm" data-act="closeModal">Entendi</button>
         </div>
       </div>
     </div>`;
@@ -812,13 +875,13 @@ views.hoje = () => {
   const chDone = chList.filter(c => c.done).length;
   const chTotal = chList.length;
 
-  const stat = (go, icon, title, val, sub, pct) => `<button class="stat" data-act="go" data-v="${go}"><span>${icon}</span><b>${title}</b><em>${val}</em><small>${sub || ''}</small>${pct != null ? `<div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>` : ''}</button>`;
+  const stat = (go, icon, title, val, sub, pct) => `<button type="button" class="stat" data-act="go" data-v="${go}"><span>${icon}</span><b>${title}</b><em>${val}</em><small>${sub || ''}</small>${pct != null ? `<div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>` : ''}</button>`;
   const pct = (n, t2) => t2 ? Math.round(n / t2 * 100) : 0;
   const j = D.journal && D.journal[t];
 
   return `<p class="date">${fmtLong(t)}</p>
   ${ps && ps.take && !D.pill.taken[t] ? `<section class="card alert"><b>💊 Pílula de hoje (${esc(D.pill.time)})</b>
-     <p style="margin:.3rem 0 .6rem">Dia ${ps.pos} da cartela.</p><button class="pri" data-act="pilltake">Já tomei</button></section>` : ''}
+     <p style="margin:.3rem 0 .6rem">Dia ${ps.pos} da cartela.</p><button type="button" class="pri" data-act="pilltake">Já tomei</button></section>` : ''}
   ${ps && !ps.take ? `<section class="card"><b>💊 Pausa da cartela</b><br><small>Nova cartela em ${fmtShort(ps.nextStart)}.</small></section>` : ''}
   ${ag.length ? `<section class="card"><h2>📅 Compromissos de hoje</h2><ul class="list">${ag.map(a => `<li><span><b>${esc(a.time || 'Dia todo')}</b> ${esc(a.title)}</span></li>`).join('')}</ul></section>` : ''}
   
@@ -838,7 +901,7 @@ views.hoje = () => {
     <section class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem">
         <h2>📝 Checklist rápida</h2>
-        <button class="ghost sm" data-act="go" data-v="checklist">Ver tudo</button>
+        <button type="button" class="ghost sm" data-act="go" data-v="checklist">Ver tudo</button>
       </div>
       <ul class="list">${chToday.slice(0, 5).map(c => `
         <li class="${c.done ? 'done' : ''}">
@@ -917,7 +980,7 @@ views.checklist = () => {
           ['concluidas', 'Concluídas (' + doneCount + ')'],
           ['hoje', 'Hoje (' + items.filter(i => i.date === t).length + ')']
         ].map(([k, label]) => `
-          <button class="${checkF === k ? 'on' : ''}" data-act="checkfilter" data-v="${k}">${label}</button>
+          <button type="button" class="${checkF === k ? 'on' : ''}" data-act="checkfilter" data-v="${k}">${label}</button>
         `).join('')}
       </div>
 
@@ -934,7 +997,7 @@ views.checklist = () => {
                     <div><label class="f">Horário</label><input type="time" name="time" value="${item.time || ''}"></div>
                   </div>
                   <div class="row" style="margin-top:.6rem">
-                    <button class="pri sm">Salvar alterações</button>
+                    <button type="submit" class="pri sm">Salvar alterações</button>
                     <button type="button" class="ghost sm" data-act="canceledit">Cancelar</button>
                   </div>
                 </form>
@@ -954,8 +1017,8 @@ views.checklist = () => {
                 </div>
               </div>
               <div class="checklist-actions">
-                <button class="ico sm" data-act="checkedit" data-id="${item.id}" title="Alterar">✏️</button>
-                <button class="dng" data-act="checkdel" data-id="${item.id}" title="Excluir">🗑</button>
+                <button type="button" class="ico sm" data-act="checkedit" data-id="${item.id}" title="Alterar">✏️</button>
+                <button type="button" class="dng" data-act="checkdel" data-id="${item.id}" title="Excluir">🗑</button>
               </div>
             </li>`;
         }).join('') || `<li class="empty">${checkSearch ? 'Nenhum resultado encontrado para "' + esc(checkSearch) + '".' : 'Nenhuma tarefa nesta visualização.'}</li>`}
@@ -963,7 +1026,7 @@ views.checklist = () => {
 
       ${items.some(i => i.done) ? `
         <div style="margin-top:.8rem">
-          <button class="ghost sm" data-act="checkclear">Limpar concluídas</button>
+          <button type="button" class="ghost sm" data-act="checkclear">Limpar concluídas</button>
         </div>
       ` : ''}
     </section>
@@ -976,7 +1039,7 @@ views.checklist = () => {
           <div><label class="f">Data</label><input type="date" name="date" value="${t}"></div>
           <div><label class="f">Horário (opcional)</label><input type="time" name="time" value=""></div>
         </div>
-        <button class="pri" style="margin-top:.7rem">Adicionar à Checklist</button>
+        <button type="submit" class="pri" style="margin-top:.7rem">Adicionar à Checklist</button>
       </form>
     </section>`;
 };
@@ -995,14 +1058,14 @@ views.estudos = () => {
     <div class="bar"><i style="width:${Math.min(100, Math.round(min / g * 100))}%"></i></div>
     <div class="week">${days.map((d, i) => `<div class="${vals[i] >= g ? 'hit' : ''}"><i style="height:${Math.round(vals[i] / mx * 80)}px"></i>${DOW[parse(d).getDay()]}</div>`).join('')}</div>
     <form class="row" data-submit="addMin" style="margin-top:.8rem"><input type="number" name="min" min="1" max="1440" placeholder="Minutos estudados (manual)" required>
-      <button class="ghost">Somar</button></form>
+      <button type="submit" class="ghost">Somar</button></form>
   </section>
   <section class="card"><h2>🍅 Método Pomodoro</h2>
     <div class="phase" id="pomoPhase"></div><div class="clock" id="pomoClock"></div>
     <div class="row" style="justify-content:center;margin-top:.6rem">
-      <button class="pri" data-act="pstart" id="pStartBtn"></button>
-      <button class="ghost" data-act="pskip">Pular fase</button>
-      <button class="ghost" data-act="preset2">Zerar</button></div>
+      <button type="button" class="pri" data-act="pstart" id="pStartBtn"></button>
+      <button type="button" class="ghost" data-act="pskip">Pular fase</button>
+      <button type="button" class="ghost" data-act="preset2">Zerar</button></div>
     <p class="note" style="text-align:center">Cada foco completo soma automaticamente à meta de hoje.</p>
     <div class="two" style="margin-top:.6rem"><div><label class="f">Foco (min)</label><input type="number" min="1" max="120" value="${D.study.focus}" data-chg="set" data-path="study.focus" data-type="num"></div>
     <div><label class="f">Pausa (min)</label><input type="number" min="1" max="60" value="${D.study.rest}" data-chg="set" data-path="study.rest" data-type="num"></div></div>
@@ -1016,7 +1079,7 @@ views.comida = () => {
   return dateBar() + routineHTML('diet') + `
   <section class="card"><h2>💧 Água</h2>
     <div class="water">${'💧'.repeat(Math.min(w, 30)) || '<small>Nenhum copo ainda</small>'}</div>
-    <div class="row"><button class="ico" data-act="water" data-n="-1">−</button><b>${w} / ${goal} copos</b><button class="pri" data-act="water" data-n="1">+ 1 copo</button></div>
+    <div class="row"><button type="button" class="ico" data-act="water" data-n="-1">−</button><b>${w} / ${goal} copos</b><button type="button" class="pri" data-act="water" data-n="1">+ 1 copo</button></div>
     <label class="f">Meta de copos por dia</label><input type="number" min="1" max="30" value="${goal}" data-chg="set" data-path="water.goal" data-type="num">
   </section>
   <section class="card"><h2>🍽 Diário de comida</h2>
@@ -1024,9 +1087,9 @@ views.comida = () => {
       <div class="two"><select name="type">${['Café da manhã', 'Lanche', 'Almoço', 'Lanche da tarde', 'Jantar', 'Ceia', 'Outro'].map(o => `<option>${o}</option>`).join('')}</select>
       <input type="time" name="time" value="${nowHM()}"></div>
       <input type="text" name="text" placeholder="O que você comeu?" required style="margin-top:.5rem" maxlength="300">
-      <button class="pri" style="margin-top:.5rem">Registrar</button></form>
+      <button type="submit" class="pri" style="margin-top:.5rem">Registrar</button></form>
     <ul class="list" style="margin-top:.6rem">${entries.map(f => `<li><span><b>${esc(f.time)}</b> · ${esc(f.type)}<br>${esc(f.text)}</span>
-      <button class="dng" data-act="fdel" data-id="${f.id}" aria-label="Excluir">🗑</button></li>`).join('') || '<li class="empty">Nada registrado neste dia.</li>'}</ul>
+      <button type="button" class="dng" data-act="fdel" data-id="${f.id}" aria-label="Excluir">🗑</button></li>`).join('') || '<li class="empty">Nada registrado neste dia.</li>'}</ul>
   </section>`;
 };
 
@@ -1035,30 +1098,30 @@ views.compras = () => {
   const items = (D.shop || []).filter(f[shopF] || f.todos).sort((a, b) => a.done - b.done);
   const total = items.filter(i => !i.done).reduce((s, i) => s + (i.price || 0), 0);
   return `<section class="card"><h2>Lista de compras</h2>
-    <div class="chips">${[['todos', 'Todos'], ['necessidade', 'Necessidades'], ['desejo', 'Desejos'], ['comprados', 'Comprados']].map(([k, l]) => `<button class="${shopF === k ? 'on' : ''}" data-act="shopf" data-v="${k}">${l}</button>`).join('')}</div>
+    <div class="chips">${[['todos', 'Todos'], ['necessidade', 'Necessidades'], ['desejo', 'Desejos'], ['comprados', 'Comprados']].map(([k, l]) => `<button type="button" class="${shopF === k ? 'on' : ''}" data-act="shopf" data-v="${k}">${l}</button>`).join('')}</div>
     <ul class="list">${items.map(i => `<li class="${i.done ? 'done' : ''}"><label><input type="checkbox" ${i.done ? 'checked' : ''} data-chg="stoggle" data-id="${i.id}">
       <span>${esc(i.name)} <span class="tag ${i.kind === 'necessidade' ? 'need' : ''}">${i.kind}</span>${i.price ? ` <small>· ${money(i.price)}</small>` : ''}</span></label>
-      <button class="dng" data-act="sdel" data-id="${i.id}" aria-label="Excluir">🗑</button></li>`).join('') || '<li class="empty">Lista vazia.</li>'}</ul>
+      <button type="button" class="dng" data-act="sdel" data-id="${i.id}" aria-label="Excluir">🗑</button></li>`).join('') || '<li class="empty">Lista vazia.</li>'}</ul>
     ${total ? `<p class="status" style="margin-top:.6rem">Estimado a comprar: ${money(total)}</p>` : ''}
-    ${(D.shop || []).some(i => i.done) ? '<button class="ghost sm" data-act="sclear">Limpar comprados</button>' : ''}
+    ${(D.shop || []).some(i => i.done) ? '<button type="button" class="ghost sm" data-act="sclear">Limpar comprados</button>' : ''}
   </section>
   <section class="card"><h2>Adicionar item</h2>
     <form data-submit="addShop"><input type="text" name="name" placeholder="O que você quer comprar?" required maxlength="120">
       <div class="two" style="margin-top:.5rem"><select name="kind"><option value="necessidade">Necessidade</option><option value="desejo">Desejo</option></select>
       <input type="number" name="price" min="0" step="0.01" placeholder="Preço (opcional)"></div>
-      <button class="pri" style="margin-top:.5rem">Adicionar</button></form></section>`;
+      <button type="submit" class="pri" style="margin-top:.5rem">Adicionar</button></form></section>`;
 };
 
 views.agenda = () => {
   const t = today(), by = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
   const up = (D.agenda || []).filter(a => a.date >= t).sort(by), past = (D.agenda || []).filter(a => a.date < t).sort((a, b) => by(b, a));
   const row = a => `<li><span><b>${a.date === t ? 'Hoje' : fmtShort(a.date)}</b>${a.time ? ' · ' + esc(a.time) : ''} — ${esc(a.title)}${a.notes ? `<br><small>${esc(a.notes)}</small>` : ''}</span>
-    <span><button class="ico sm" data-act="ics" data-id="${a.id}" title="Adicionar ao calendário do aparelho">📆</button><button class="dng" data-act="adel" data-id="${a.id}" aria-label="Excluir">🗑</button></span></li>`;
+    <span><button type="button" class="ico sm" data-act="ics" data-id="${a.id}" title="Adicionar ao calendário do aparelho">📆</button><button type="button" class="dng" data-act="adel" data-id="${a.id}" aria-label="Excluir">🗑</button></span></li>`;
   return `<section class="card"><h2>Novo compromisso</h2>
     <form data-submit="addAgenda"><input type="text" name="title" placeholder="Ex.: Consulta, prova, reunião" required maxlength="120">
       <div class="two" style="margin-top:.5rem"><input type="date" name="date" value="${sel < t ? t : sel}" required><input type="time" name="time"></div>
       <input type="text" name="notes" placeholder="Observações (opcional)" style="margin-top:.5rem" maxlength="300">
-      <button class="pri" style="margin-top:.5rem">Salvar</button></form></section>
+      <button type="submit" class="pri" style="margin-top:.5rem">Salvar</button></form></section>
   <section class="card"><h2>Próximos</h2><ul class="list">${up.map(row).join('') || '<li class="empty">Nada agendado.</li>'}</ul></section>
   ${past.length ? `<details class="card"><summary>Passados (${past.length})</summary><ul class="list">${past.slice(0, 30).map(row).join('')}</ul></details>` : ''}`;
 };
@@ -1067,11 +1130,11 @@ views.diario = () => {
   const j = (D.journal && D.journal[sel]) || {};
   const recent = Object.keys(D.journal || {}).filter(d => d !== sel && (D.journal[d].text || D.journal[d].reflect)).sort().reverse().slice(0, 12);
   return dateBar() + `<section class="card"><h2>Como foi o dia?</h2>
-    <div class="moods">${['😞', '😕', '😐', '🙂', '😄'].map((m, i) => `<button class="${j.mood === i + 1 ? 'on' : ''}" data-act="mood" data-v="${i + 1}">${m}</button>`).join('')}</div>
+    <div class="moods">${['😞', '😕', '😐', '🙂', '😄'].map((m, i) => `<button type="button" class="${j.mood === i + 1 ? 'on' : ''}" data-act="mood" data-v="${i + 1}">${m}</button>`).join('')}</div>
     <label class="f">Diário</label><textarea data-inp="text" placeholder="Escreva sobre o seu dia…">${esc(j.text || '')}</textarea>
     <label class="f">Reflexão / gratidão</label><textarea data-inp="reflect" placeholder="O que aprendi? Pelo que sou grata?">${esc(j.reflect || '')}</textarea>
     <p class="note">Salvo automaticamente.</p></section>
-  ${recent.length ? `<section class="card"><h2>Entradas recentes</h2><ul class="list">${recent.map(d => `<li><button class="ghost sm" data-act="gotodate" data-v="${d}" style="text-align:left;flex:1">
+  ${recent.length ? `<section class="card"><h2>Entradas recentes</h2><ul class="list">${recent.map(d => `<li><button type="button" class="ghost sm" data-act="gotodate" data-v="${d}" style="text-align:left;flex:1">
     <b>${fmtShort(d)}</b> ${['', '😞', '😕', '😐', '🙂', '😄'][D.journal[d].mood || 0]} <small>${esc((D.journal[d].text || D.journal[d].reflect || '').slice(0, 60))}…</small></button></li>`).join('')}</ul></section>` : ''}`;
 };
 
@@ -1079,8 +1142,8 @@ views.ciclo = () => {
   const cd = cycleData(), t = today(), ps = pillStatus(t), c = D.pill;
   const nx = cd.cycles.find(x => x.start >= t) || cd.cycles[0];
   const hist = [...cd.ps].reverse().map(p => `<li><span>${fmtFull(p.start)} → ${p.end ? fmtFull(p.end) : '<small>em andamento</small>'}</span><span>
-    ${p.end ? '' : `<button class="ico sm" data-act="pend" data-id="${p.start}">Terminou hoje</button>`}
-    <button class="dng" data-act="pdel" data-id="${p.start}" aria-label="Excluir">🗑</button></span></li>`).join('') || '<li class="empty">Nenhum registro ainda.</li>';
+    ${p.end ? '' : `<button type="button" class="ico sm" data-act="pend" data-id="${p.start}">Terminou hoje</button>`}
+    <button type="button" class="dng" data-act="pdel" data-id="${p.start}" aria-label="Excluir">🗑</button></span></li>`).join('') || '<li class="empty">Nenhum registro ainda.</li>';
   const last7 = [...Array(7)].map((_, i) => addDays(t, i - 6));
   return `<section class="card">${calHTML()}
     ${nx ? `<p class="status" style="margin-top:.8rem">Próxima menstruação: ${fmtShort(nx.start)} <small>(em ${diff(nx.start, t)} dias)</small><br>
@@ -1089,7 +1152,7 @@ views.ciclo = () => {
     <p class="note">As datas são estimativas calculadas e <b>não servem como método contraceptivo</b>.</p></section>
   <section class="card"><h2>Registrar menstruação</h2>
     <form data-submit="addPeriod" class="row"><div><label class="f">Primeiro dia</label><input type="date" name="start" value="${t}" required></div>
-    <div><label class="f">Último dia (se já terminou)</label><input type="date" name="end"></div><button class="pri">Salvar</button></form>
+    <div><label class="f">Último dia (se já terminou)</label><input type="date" name="end"></div><button type="submit" class="pri">Salvar</button></form>
     <ul class="list" style="margin-top:.6rem">${hist}</ul>
     <details style="margin-top:.6rem"><summary>Ajustes de previsão</summary>
       <div class="two"><div><label class="f">Ciclo padrão (dias)</label><input type="number" min="21" max="45" value="${D.cycle.cycleLen}" data-chg="set" data-path="cycle.cycleLen" data-type="num"></div>
@@ -1098,18 +1161,18 @@ views.ciclo = () => {
   <section class="card"><h2>💊 Anticoncepcional</h2>
     <label style="display:flex;gap:.6rem;align-items:center"><input type="checkbox" ${c.on ? 'checked' : ''} data-chg="set" data-path="pill.on" data-type="bool"> Ativar controle e lembrete</label>
     ${c.on ? `
-    <div class="row" style="margin:.6rem 0"><button class="ghost sm" data-act="pillpreset" data-a="21" data-p="7">21 + 7 pausa</button>
-      <button class="ghost sm" data-act="pillpreset" data-a="24" data-p="4">24 + 4 pausa</button>
-      <button class="ghost sm" data-act="pillpreset" data-a="28" data-p="0">Contínuo (sem pausa)</button></div>
+    <div class="row" style="margin:.6rem 0"><button type="button" class="ghost sm" data-act="pillpreset" data-a="21" data-p="7">21 + 7 pausa</button>
+      <button type="button" class="ghost sm" data-act="pillpreset" data-a="24" data-p="4">24 + 4 pausa</button>
+      <button type="button" class="ghost sm" data-act="pillpreset" data-a="28" data-p="0">Contínuo (sem pausa)</button></div>
     <div class="two"><div><label class="f">Dias com pílula</label><input type="number" min="1" max="90" value="${c.active}" data-chg="set" data-path="pill.active" data-type="num"></div>
     <div><label class="f">Dias de pausa (0 = sem)</label><input type="number" min="0" max="14" value="${c.pause}" data-chg="set" data-path="pill.pause" data-type="num"></div>
     <div><label class="f">1º dia da cartela</label><input type="date" value="${c.start}" data-chg="set" data-path="pill.start"></div>
     <div><label class="f">Horário</label><input type="time" value="${c.time}" data-chg="set" data-path="pill.time"></div></div>
-    <button class="ghost sm" style="margin-top:.5rem" data-act="newpack">Começar nova cartela hoje</button>
+    <button type="button" class="ghost sm" style="margin-top:.5rem" data-act="newpack">Começar nova cartela hoje</button>
     ${ps ? `<p class="status" style="margin-top:.8rem">${ps.take ? `Hoje: tomar a pílula (dia ${ps.pos}).` : `Hoje: dia de pausa. Nova cartela em ${fmtShort(ps.nextStart)}.`}</p>
       ${ps.take ? `<label style="display:flex;gap:.6rem;align-items:center"><input type="checkbox" ${c.taken[t] ? 'checked' : ''} data-chg="pilltaken"> Já tomei hoje</label>` : ''}` : '<p class="note">Informe o 1º dia da cartela para começar.</p>'}
     <div class="row" style="margin-top:.6rem">${last7.map(d => `<span title="${fmtShort(d)}" style="text-align:center;font-size:.7rem;color:var(--muted)">${DOW[parse(d).getDay()]}<br>${c.taken[d] ? '✅' : (pillStatus(d) && pillStatus(d).take && d < t ? '⚠️' : '·')}</span>`).join('')}</div>
-    <button class="ghost sm" style="margin-top:.6rem" data-act="reqnotif">🔔 Ativar avisos neste aparelho</button>
+    <button type="button" class="ghost sm" style="margin-top:.6rem" data-act="reqnotif">🔔 Ativar avisos neste aparelho</button>
     <p class="note">Os avisos só aparecem com o app aberto ou em segundo plano.</p>` : ''}
   </section>`;
 };
@@ -1134,9 +1197,9 @@ views.backup = () => {
           <p class="note" style="margin-top:0">Seus dados e checklists são sincronizados automaticamente na nuvem Firebase para sua conta Google a cada alteração.</p>
           <p class="status ok">Última atualização: ${lastSyncText}</p>
           <div class="row" style="margin-top:.8rem">
-            <button class="pri sm" data-act="forcesync">Sincronizar agora</button>
-            <button class="ghost sm" data-act="openSettings">Configurações (Tema & Fontes)</button>
-            <button class="dng sm" data-act="logout">Desconectar</button>
+            <button type="button" class="pri sm" data-act="forcesync">Sincronizar agora</button>
+            <button type="button" class="ghost sm" data-act="openSettings">Configurações</button>
+            <button type="button" class="dng sm" data-act="logout">Desconectar</button>
           </div>
         ` : `
           <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem">
@@ -1148,8 +1211,8 @@ views.backup = () => {
           </div>
           <p class="note" style="margin-top:0">Ao entrar com o Google, seus dados e checklists vão diretamente para a sua conta, permitindo acessar de outros aparelhos sem nenhuma configuração manual.</p>
           <div class="row" style="margin-top:.8rem">
-            <button class="pri sm" data-act="login">🔑 Entrar com Google</button>
-            <button class="ghost sm" data-act="openSettings">Configurações</button>
+            <button type="button" class="pri sm" data-act="login">🔑 Entrar com Google</button>
+            <button type="button" class="ghost sm" data-act="openSettings">Configurações</button>
           </div>
         `}
       </div>
@@ -1159,22 +1222,22 @@ views.backup = () => {
       <h2>📱 Aplicativo APK e Notificações</h2>
       <p class="note" style="margin-top:0">Instale no celular ou compile um arquivo .apk standalone, com notificações automáticas.</p>
       <div class="row">
-        <button class="ghost sm" data-act="openapkguide">📱 Ver Guia do APK</button>
-        <button class="ghost sm" data-act="testnotif">🔔 Testar Notificações</button>
+        <button type="button" class="ghost sm" data-act="openapkguide">📱 Ver Guia do APK</button>
+        <button type="button" class="ghost sm" data-act="testnotif">🔔 Testar Notificações</button>
       </div>
     </section>
 
     <section class="card">
       <h2>🎨 Aparência</h2>
       <p class="note" style="margin-top:0">Personalize a cor da aplicação com a roda RGB e troque a fonte do texto.</p>
-      <button class="ghost sm" data-act="openSettings">Abrir Configurações de Tema e Fonte</button>
+      <button type="button" class="ghost sm" data-act="openSettings">Abrir Configurações de Tema e Fonte</button>
     </section>
 
     <section class="card">
       <h2>💾 Cópia de Segurança Manual</h2>
       <p class="note" style="margin-top:0">Você também pode exportar ou restaurar um arquivo .json dos seus dados a qualquer momento.</p>
       <div class="row">
-        <button class="ghost sm" data-act="export">Baixar backup (.json)</button>
+        <button type="button" class="ghost sm" data-act="export">Baixar backup (.json)</button>
         <label class="ghost sm" style="border:1px solid var(--accent);border-radius:12px;padding:.35rem .75rem;cursor:pointer;color:var(--accent)">
           Importar backup (.json)
           <input type="file" accept=".json,application/json" data-chg="import" hidden>
@@ -1185,7 +1248,7 @@ views.backup = () => {
 
 /* =====================  Render e navegação  ===================== */
 function renderNav() {
-  $('#nav').innerHTML = NAV.map(([k, ic, l]) => `<button class="${view === k ? 'on' : ''}" data-act="go" data-v="${k}"><span>${ic}</span>${l}</button>`).join('');
+  $('#nav').innerHTML = NAV.map(([k, ic, l]) => `<button type="button" class="${view === k ? 'on' : ''}" data-act="go" data-v="${k}"><span>${ic}</span>${l}</button>`).join('');
 }
 
 function render() {
@@ -1227,13 +1290,19 @@ const A = {
   todaybtn: () => { sel = today(); render(); },
   gotodate: el => { sel = el.dataset.v; render(); window.scrollTo(0, 0); },
   preset: el => { const ds = el.dataset.d.split(',').map(Number); $$('input[name=d]', el.closest('form')).forEach(c => c.checked = ds.includes(+c.value)); },
-  rdel: el => { if (confirm('Excluir este item?')) mutate(d => { d.routines[el.dataset.k] = d.routines[el.dataset.k].filter(r => r.id !== el.dataset.id); }); },
+  rdel: el => {
+    mutate(d => { d.routines[el.dataset.k] = d.routines[el.dataset.k].filter(r => r.id !== el.dataset.id); });
+    toast('Item removido ✓');
+  },
   water: el => mutate(d => { d.water.log[sel] = Math.max(0, (d.water.log[sel] || 0) + +el.dataset.n); }),
   fdel: el => mutate(d => { d.food = d.food.filter(f => f.id !== el.dataset.id); }),
   shopf: el => { shopF = el.dataset.v; render(); },
   sdel: el => mutate(d => { d.shop = d.shop.filter(i => i.id !== el.dataset.id); }),
   sclear: () => mutate(d => { d.shop = d.shop.filter(i => !i.done); }),
-  adel: el => { if (confirm('Excluir compromisso?')) mutate(d => { d.agenda = d.agenda.filter(a => a.id !== el.dataset.id); }); },
+  adel: el => {
+    mutate(d => { d.agenda = d.agenda.filter(a => a.id !== el.dataset.id); });
+    toast('Compromisso excluído ✓');
+  },
   ics: el => {
     const a = (D.agenda || []).find(x => x.id === el.dataset.id); if (!a) return;
     const dt = a.date.replace(/-/g, ''), tm = (a.time || '').replace(':', '');
@@ -1244,7 +1313,10 @@ const A = {
   mood: el => mutate(d => { const j = d.journal[sel] || (d.journal[sel] = {}); j.mood = j.mood === +el.dataset.v ? 0 : +el.dataset.v; }),
   cal: el => { calM = new Date(calM.getFullYear(), calM.getMonth() + +el.dataset.n, 1); render(); },
   pend: el => mutate(d => { const p = d.cycle.periods.find(x => x.start === el.dataset.id); if (p) p.end = today() < p.start ? p.start : today(); }),
-  pdel: el => { if (confirm('Excluir este registro?')) mutate(d => { d.cycle.periods = d.cycle.periods.filter(p => p.start !== el.dataset.id); }); },
+  pdel: el => {
+    mutate(d => { d.cycle.periods = d.cycle.periods.filter(p => p.start !== el.dataset.id); });
+    toast('Registro excluído ✓');
+  },
   pillpreset: el => mutate(d => { d.pill.active = +el.dataset.a; d.pill.pause = +el.dataset.p; }),
   newpack: () => mutate(d => { d.pill.start = today(); }),
   pilltake: () => mutate(d => { d.pill.taken[today()] = true; }),
@@ -1321,14 +1393,14 @@ const A = {
   checkedit: el => { editingChecklistId = el.dataset.id; render(); },
   canceledit: () => { editingChecklistId = null; render(); },
   checkdel: el => {
-    if (confirm('Excluir este item da checklist?')) {
-      mutate(d => { d.checklist = (d.checklist || []).filter(c => c.id !== el.dataset.id); });
-    }
+    mutate(d => { d.checklist = (d.checklist || []).filter(c => c.id !== el.dataset.id); });
+    toast('Item excluído da checklist ✓');
   },
   checkclear: () => {
-    if (confirm('Remover todas as tarefas concluídas?')) {
-      mutate(d => { d.checklist = (d.checklist || []).filter(c => !c.done); });
-    }
+    const doneCount = (D.checklist || []).filter(c => c.done).length;
+    if (!doneCount) return toast('Nenhuma tarefa concluída para limpar.');
+    mutate(d => { d.checklist = (d.checklist || []).filter(c => !c.done); });
+    toast('Tarefas concluídas removidas ✓');
   },
 
   // Ações de Usuário e Configurações
@@ -1340,33 +1412,49 @@ const A = {
   login: async () => {
     if (!window.firebaseBridge) return toast('Firebase não disponível.');
     try {
+      toast('Abrindo autenticação do Google...');
       await window.firebaseBridge.loginWithGoogle();
       closeModal();
       userMenuOpen = false;
       const dropdown = $('#userDropdown');
       if (dropdown) dropdown.hidden = true;
     } catch (e) {
-      toast('Login cancelado ou bloqueado.');
+      console.error('Falha no login:', e);
+      if (e.code === 'auth/popup-blocked') {
+        showOpenExternalLoginModal();
+      } else if (e.code === 'auth/cancelled-popup-request' || e.code === 'auth/popup-closed-by-user') {
+        toast('Janela de login fechada.');
+      } else if (e.code === 'auth/unauthorized-domain') {
+        toast('Domínio precisa ser autorizado no Firebase Console.');
+      } else {
+        toast(`Erro de login: ${e.code || e.message || 'tente abrir em nova aba'}`);
+        showOpenExternalLoginModal();
+      }
     }
   },
   logout: async () => {
-    if (!confirm('Deseja sair da sua conta Google? Seus dados continuam salvos na nuvem e no aparelho.')) return;
     try {
-      await window.firebaseBridge.logout();
+      if (window.firebaseBridge) {
+        await window.firebaseBridge.logout();
+      }
       currentUser = null;
       userMenuOpen = false;
       const dropdown = $('#userDropdown');
       if (dropdown) dropdown.hidden = true;
       updateAccountUI();
       render();
-      toast('Desconectado com sucesso.');
+      toast('Desconectado com sucesso ✓');
     } catch (e) {
-      toast('Erro ao sair.');
+      toast('Erro ao sair: ' + (e.message || 'desconhecido'));
     }
   },
   openSettings: () => { openSettingsModal(); },
   closeModal: () => { closeModal(); },
-  backdropClose: () => { closeModal(); },
+  backdropClose: (el, e) => {
+    if (e.target.classList.contains('modal-backdrop')) {
+      closeModal();
+    }
+  },
   dismissWelcome: () => {
     localStorage.setItem('vo_welcome_dismissed', '1');
     closeModal();
@@ -1376,11 +1464,13 @@ const A = {
     const c = el.dataset.c;
     applyTheme(c, true);
     openSettingsModal();
+    toast('Cor alterada ✓');
   },
   pickFont: el => {
     const f = el.dataset.f;
     applyFont(f, true);
     openSettingsModal();
+    toast('Fonte alterada ✓');
   },
   resetAppearance: () => {
     applyTheme('#8e4585', true);
@@ -1406,6 +1496,7 @@ const C = {
   notiftoggle: el => mutate(d => {
     if (!d.notifSettings) d.notifSettings = { agenda: true, checklist: true, ciclo: true, habitos: true };
     d.notifSettings[el.dataset.k] = el.checked;
+    toast('Preferencia de aviso atualizada ✓');
   }, { render: false }),
   set: el => {
     const t = el.dataset.type; let v = el.value;
@@ -1421,12 +1512,11 @@ const C = {
       try {
         const d = JSON.parse(r.result);
         if (!isObj(d)) throw 0;
-        if (!confirm('Substituir os dados atuais pelo arquivo importado?')) return;
         D = merge(DEF(), d);
         save();
         initAppearance();
         render();
-        toast('Backup importado ✓');
+        toast('Backup importado com sucesso ✓');
       } catch {
         toast('Arquivo inválido.');
       }

@@ -2,6 +2,9 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signInWithCredential,
   GoogleAuthProvider,
   signOut,
   onAuthStateChanged
@@ -65,10 +68,16 @@ async function testConnection() {
 }
 testConnection();
 
+// Check for pending redirect result on boot
+getRedirectResult(auth).catch(err => {
+  console.warn('Redirect result check:', err);
+});
+
 // Expose clean helper functions on window
 window.firebaseBridge = {
   auth,
   db,
+  clientId: firebaseConfig.oAuthClientId,
   getCurrentUser: () => auth.currentUser,
   onAuthChange: (callback) => {
     return onAuthStateChanged(auth, callback);
@@ -78,7 +87,28 @@ window.firebaseBridge = {
       const result = await signInWithPopup(auth, googleProvider);
       return result.user;
     } catch (err) {
-      console.error('Error signing in with Google:', err);
+      console.error('Error signing in with Google Popup:', err);
+      // If popup is blocked by the browser or sandbox, attempt redirect or surface code
+      if (err.code === 'auth/popup-blocked') {
+        console.warn('Popup blocked, attempting redirect...');
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return null;
+        } catch (redirectErr) {
+          console.error('Redirect sign in also failed:', redirectErr);
+          throw redirectErr;
+        }
+      }
+      throw err;
+    }
+  },
+  loginWithIdToken: async (idToken) => {
+    try {
+      const credential = GoogleAuthProvider.credential(idToken);
+      const result = await signInWithCredential(auth, credential);
+      return result.user;
+    } catch (err) {
+      console.error('Error signing in with Google Credential:', err);
       throw err;
     }
   },
