@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "UserData": {
+      "title": "UserData",
+      "description": "User profile state, settings, checklist items, and all life planning modules.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Google UID",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "User Google email address",
+          "maxLength": 256
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last modification"
+        },
+        "themeColor": {
+          "type": "string",
+          "description": "Theme RGB/HEX color",
+          "maxLength": 64
+        },
+        "fontFamily": {
+          "type": "string",
+          "description": "Preferred basic font family",
+          "maxLength": 64
+        },
+        "cycle": {
+          "type": "object",
+          "description": "Cycle tracking data"
+        },
+        "pill": {
+          "type": "object",
+          "description": "Birth control pill tracking data"
+        },
+        "routines": {
+          "type": "object",
+          "description": "Habits, workout and diet routines"
+        },
+        "rlog": {
+          "type": "object",
+          "description": "Routine completion logs"
+        },
+        "study": {
+          "type": "object",
+          "description": "Study goals and timer logs"
+        },
+        "water": {
+          "type": "object",
+          "description": "Water tracking goal and log"
+        },
+        "food": {
+          "type": "array",
+          "description": "Food journal entries"
+        },
+        "shop": {
+          "type": "array",
+          "description": "Shopping list items"
+        },
+        "agenda": {
+          "type": "array",
+          "description": "Calendar events"
+        },
+        "journal": {
+          "type": "object",
+          "description": "Daily reflection journal entries"
+        },
+        "checklist": {
+          "type": "array",
+          "description": "User customizable checklist items"
+        }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserData",
+      "description": "Private collection storing user data and planning modules"
+    }
+  }
+}

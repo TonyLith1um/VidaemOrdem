@@ -16,13 +16,16 @@ const fmtFull = s => parse(s).toLocaleDateString('pt-BR');
 const money = n => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const nowHM = () => { const d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const DOW = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
-const DOWN = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
 
 /* =====================  Dados  ===================== */
-const KEY = 'vo_data', CFGKEY = 'vo_cfg', NTKEY = 'vo_nt';
+const KEY = 'vo_data', NTKEY = 'vo_nt';
 const DEF = () => ({
-  v: 1, updatedAt: 0,
+  v: 2, updatedAt: 0,
+  themeColor: '#8e4585',
+  fontFamily: 'system-ui',
+  notifSettings: { agenda: true, checklist: true, ciclo: true, habitos: true },
+  checklist: [],
   cycle: { periods: [], cycleLen: 28, periodLen: 5 },
   pill: { on: false, active: 21, pause: 7, start: '', time: '21:00', taken: {} },
   routines: { habits: [], exercises: [], diet: [] },
@@ -31,41 +34,134 @@ const DEF = () => ({
   water: { goal: 8, log: {} },
   food: [], shop: [], agenda: [], journal: {}
 });
+
 function merge(def, obj) {
   if (!isObj(obj)) return def;
+  const res = { ...def };
   for (const k in def) {
-    if (isObj(def[k])) {
-      def[k] = Object.keys(def[k]).length ? merge(def[k], obj[k]) : (isObj(obj[k]) ? obj[k] : def[k]);
-    } else if (k in obj && obj[k] != null) def[k] = obj[k];
+    if (k in obj && obj[k] != null) {
+      if (Array.isArray(def[k])) {
+        res[k] = Array.isArray(obj[k]) ? obj[k] : def[k];
+      } else if (isObj(def[k])) {
+        res[k] = isObj(obj[k]) ? { ...def[k], ...obj[k] } : def[k];
+      } else {
+        res[k] = obj[k];
+      }
+    }
   }
-  return def;
+  return res;
 }
-function load() { try { return merge(DEF(), JSON.parse(localStorage.getItem(KEY))); } catch { return DEF(); } }
-let D = load();
 
-let cfg = Object.assign({ clientId: '', connected: false, auto: true, fileId: '', lastAt: 0, dirty: false },
-  (() => { try { return JSON.parse(localStorage.getItem(CFGKEY)) || {}; } catch { return {}; } })());
-if (!cfg.clientId) cfg.clientId = window.VO_CLIENT_ID || '';
-const saveCfg = () => localStorage.setItem(CFGKEY, JSON.stringify(cfg));
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? merge(DEF(), JSON.parse(raw)) : DEF();
+  } catch {
+    return DEF();
+  }
+}
+
+let D = load();
 
 function save() {
   D.updatedAt = Date.now();
   localStorage.setItem(KEY, JSON.stringify(D));
-  markDirty();
+  scheduleCloudSync();
 }
-function mutate(fn, opt = {}) { fn(D); save(); if (opt.render !== false) render(); }
+
+function mutate(fn, opt = {}) {
+  fn(D);
+  save();
+  if (opt.render !== false) render();
+}
+
 function setPath(obj, path, val) {
   const p = path.split('.'); let o = obj;
   while (p.length > 1) o = o[p.shift()];
   o[p[0]] = val;
 }
 
+/* =====================  Tema e Fontes  ===================== */
+const FONTS = {
+  'system-ui': { name: 'Padrão do Sistema', stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+  'inter': { name: 'Inter / Roboto (Moderna)', stack: '"Inter", "Roboto", "Segoe UI", sans-serif' },
+  'serif': { name: 'Georgia (Clássica / Serif)', stack: '"Georgia", "Merriweather", "Times New Roman", serif' },
+  'rounded': { name: 'Nunito (Amigável)', stack: '"Nunito", "Quicksand", "Segoe UI", cursive, sans-serif' },
+  'mono': { name: 'Fira Code (Código)', stack: '"Fira Code", "Consolas", "Courier New", monospace' },
+  'trebuchet': { name: 'Trebuchet MS (Humanista)', stack: '"Trebuchet MS", "Lucida Sans", sans-serif' }
+};
+
+const PALETTE = [
+  { name: 'Violeta Original', color: '#8e4585' },
+  { name: 'Rosa Framboesa', color: '#d81b60' },
+  { name: 'Roxo Lavanda', color: '#7b1fa2' },
+  { name: 'Azul Celeste', color: '#0288d1' },
+  { name: 'Verde Esmeralda', color: '#00897b' },
+  { name: 'Verde Menta', color: '#2e7d32' },
+  { name: 'Pêssego Âmbar', color: '#e65100' },
+  { name: 'Caramelo', color: '#a04000' },
+  { name: 'Grafite Suave', color: '#37474f' }
+];
+
+function hexToRgb(hex) {
+  hex = hex.replace(/^#/, '');
+  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  const num = parseInt(hex, 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(x => {
+    const hex = Math.max(0, Math.min(255, Math.round(x))).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+function applyTheme(color, persist = true) {
+  if (!color || !/^#[0-9a-fA-F]{6}$/.test(color)) color = '#8e4585';
+  document.documentElement.style.setProperty('--accent', color);
+  document.documentElement.style.setProperty('--accent-soft', color + '28');
+  const meta = $('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', color);
+  if (persist) {
+    D.themeColor = color;
+    save();
+  }
+}
+
+function applyFont(key, persist = true) {
+  const font = FONTS[key] || FONTS['system-ui'];
+  document.documentElement.style.setProperty('--font-family', font.stack);
+  document.body.style.fontFamily = font.stack;
+  if (persist) {
+    D.fontFamily = key;
+    save();
+  }
+}
+
+function initAppearance() {
+  applyTheme(D.themeColor || '#8e4585', false);
+  applyFont(D.fontFamily || 'system-ui', false);
+}
+
 /* =====================  Estado de tela  ===================== */
 let view = 'hoje', sel = today(), calM = new Date(), shopF = 'todos';
+let checkF = 'todas'; // 'todas', 'pendentes', 'concluidas', 'hoje'
+let checkSearch = '';
+let editingChecklistId = null;
+
 const NAV = [
-  ['hoje', '🏠', 'Hoje'], ['ciclo', '🌸', 'Ciclo'], ['habitos', '✅', 'Hábitos'], ['estudos', '📚', 'Estudos'],
-  ['treino', '💪', 'Treino'], ['comida', '🥗', 'Alimentação'], ['compras', '🛒', 'Compras'],
-  ['agenda', '📅', 'Agenda'], ['diario', '📓', 'Diário'], ['backup', '☁️', 'Backup']
+  ['hoje', '🏠', 'Hoje'],
+  ['checklist', '📝', 'Checklist'],
+  ['ciclo', '🌸', 'Ciclo'],
+  ['habitos', '✅', 'Hábitos'],
+  ['estudos', '📚', 'Estudos'],
+  ['treino', '💪', 'Treino'],
+  ['comida', '🥗', 'Alimentação'],
+  ['compras', '🛒', 'Compras'],
+  ['agenda', '📅', 'Agenda'],
+  ['diario', '📓', 'Diário'],
+  ['backup', '☁️', 'Nuvem']
 ];
 
 /* =====================  Rotinas (hábitos, treino, dieta)  ===================== */
@@ -76,12 +172,12 @@ const RT = {
 };
 const dueOn = (r, date) => r.days.includes(parse(date).getDay());
 function rtProg(k, date) {
-  const items = D.routines[k].filter(r => dueOn(r, date)), done = D.rlog[k][date] || [];
+  const items = (D.routines[k] || []).filter(r => dueOn(r, date)), done = (D.rlog[k] && D.rlog[k][date]) || [];
   return { n: items.filter(r => done.includes(r.id)).length, total: items.length };
 }
 function streak(k, r) {
   let n = 0, d = today();
-  const done = x => (D.rlog[k][x] || []).includes(r.id);
+  const done = x => (D.rlog[k] && D.rlog[k][x] || []).includes(r.id);
   if (dueOn(r, d) && !done(d)) d = addDays(d, -1);
   for (let i = 0; i < 400; i++) {
     if (!dueOn(r, d)) { d = addDays(d, -1); continue; }
@@ -98,114 +194,636 @@ function daysPicker(sel7 = [0, 1, 2, 3, 4, 5, 6]) {
     <div class="days">${DOW.map((l, i) => `<label>${l}<input type="checkbox" name="d" value="${i}" ${sel7.includes(i) ? 'checked' : ''}></label>`).join('')}</div>`;
 }
 function routineHTML(k) {
-  const t = RT[k], items = D.routines[k].filter(r => dueOn(r, sel)), done = D.rlog[k][sel] || [];
-  const p = rtProg(k, sel);
-  const list = items.map(r => `<li class="${done.includes(r.id) ? 'done' : ''}">
-      <label><input type="checkbox" ${done.includes(r.id) ? 'checked' : ''} data-chg="rtoggle" data-k="${k}" data-id="${r.id}">
-      <span>${esc(r.name)}${r.reps ? ` <small>· ${esc(r.reps)}</small>` : ''}</span></label>
-      ${k === 'habits' && streak(k, r) > 1 ? `<span class="badge">🔥 ${streak(k, r)}</span>` : ''}</li>`).join('')
-    || `<li class="empty">${t.empty}</li>`;
-  const all = D.routines[k].map(r => `<li><span>${esc(r.name)}${r.reps ? ` <small>· ${esc(r.reps)}</small>` : ''}<br>
-      <small>${r.days.length === 7 ? 'Todos os dias' : r.days.map(d => DOWN[d]).join(', ')}</small></span>
-      <button class="dng" data-act="rdel" data-k="${k}" data-id="${r.id}" aria-label="Excluir">🗑</button></li>`).join('')
-    || '<li class="empty">Nada cadastrado ainda.</li>';
-  return `<section class="card"><h2>${t.title}</h2>${progress(p.n, p.total)}<ul class="list">${list}</ul></section>
-  <details class="card" ${D.routines[k].length ? '' : 'open'}><summary>Adicionar / gerenciar</summary>
-    <form data-submit="addRoutine" data-k="${k}">
-      <label class="f">Nome</label><input type="text" name="name" placeholder="${t.ph}" required maxlength="120">
-      ${t.reps ? '<label class="f">Repetições / séries</label><input type="text" name="reps" placeholder="Ex.: 3 x 12" maxlength="40">' : ''}
-      <label class="f">Em quais dias?</label>${daysPicker()}
-      <button class="pri" style="margin-top:.5rem">Adicionar</button>
-    </form>
-    <h2 style="margin-top:1rem">Cadastrados</h2><ul class="list">${all}</ul>
-  </details>`;
+  const meta = RT[k], items = (D.routines[k] || []).filter(r => dueOn(r, sel));
+  const done = (D.rlog[k] && D.rlog[k][sel]) || [];
+  const prog = rtProg(k, sel);
+  return `<section class="card"><h2>${meta.title}</h2>
+    ${progress(prog.n, prog.total)}
+    <ul class="list" style="margin-top:.6rem">${items.map(r => {
+      const isDone = done.includes(r.id), s = streak(k, r);
+      return `<li class="${isDone ? 'done' : ''}"><label><input type="checkbox" ${isDone ? 'checked' : ''} data-chg="rtoggle" data-k="${k}" data-id="${r.id}">
+        <span>${esc(r.name)}${r.reps ? ` <small>· ${esc(r.reps)}</small>` : ''}${s > 1 ? ` <span class="badge" title="dias seguidos">🔥 ${s}</span>` : ''}</span></label>
+        <button class="dng" data-act="rdel" data-k="${k}" data-id="${r.id}" aria-label="Excluir">🗑</button></li>`;
+    }).join('') || `<li class="empty">${meta.empty}</li>`}</ul></section>
+  <section class="card"><h2>Adicionar ${k === 'diet' ? 'ao plano' : (k === 'exercises' ? 'exercício' : 'hábito')}</h2>
+    <form data-submit="addRoutine" data-k="${k}"><input type="text" name="name" placeholder="${meta.ph}" required maxlength="120">
+      ${meta.reps ? '<input type="text" name="reps" placeholder="Séries/repetições (ex.: 3x12)" style="margin-top:.5rem" maxlength="60">' : ''}
+      <label class="f">Dias da semana:</label>${daysPicker()}
+      <button class="pri" style="margin-top:.6rem">Adicionar</button></form></section>`;
 }
-const dateBar = () => `<div class="datebar"><button data-act="day" data-n="-1" aria-label="Dia anterior">‹</button>
-  <input type="date" value="${sel}" data-chg="setdate"><button data-act="day" data-n="1" aria-label="Próximo dia">›</button>
-  ${sel !== today() ? '<button class="ghost" data-act="todaybtn">Hoje</button>' : ''}</div>`;
+function dateBar() {
+  const isT = sel === today();
+  return `<div class="datebar"><button class="ico" data-act="day" data-n="-1">‹</button>
+    <input type="date" value="${sel}" data-chg="setdate" style="max-width:180px">
+    <button class="ico" data-act="day" data-n="1">›</button>
+    ${isT ? '' : '<button class="ghost" data-act="todaybtn">Hoje</button>'}</div>`;
+}
 
-/* =====================  Ciclo e pílula  ===================== */
+/* =====================  Ciclo e Pílula  ===================== */
 function cycleData() {
-  const ps = [...D.cycle.periods].sort((a, b) => a.start.localeCompare(b.start));
-  let avg = D.cycle.cycleLen, gaps = [];
-  for (let i = 1; i < ps.length; i++) gaps.push(diff(ps[i].start, ps[i - 1].start));
-  gaps = gaps.filter(g => g >= 15 && g <= 60).slice(-6);
-  if (gaps.length) avg = Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
-  const irregular = gaps.length >= 2 && Math.max(...gaps) - Math.min(...gaps) > 7;
-  const last = ps.length ? ps[ps.length - 1] : null;
+  const ps = [...(D.cycle.periods || [])].sort((a, b) => a.start.localeCompare(b.start));
+  let sum = 0, cnt = 0;
+  for (let i = 1; i < ps.length; i++) {
+    const len = diff(ps[i].start, ps[i - 1].start);
+    if (len >= 18 && len <= 60) { sum += len; cnt++; }
+  }
+  const avg = cnt ? Math.round(sum / cnt) : D.cycle.cycleLen;
+  const plen = D.cycle.periodLen;
   const cycles = [];
-  if (last) for (let i = 1; i <= 4; i++) {
-    const s = addDays(last.start, avg * i);
-    cycles.push({ start: s, end: addDays(s, D.cycle.periodLen - 1), ov: addDays(s, -14), fs: addDays(s, -19), fe: addDays(s, -13) });
+  if (ps.length) {
+    let cur = ps[ps.length - 1].start;
+    for (let i = 0; i < 6; i++) {
+      const next = i === 0 && ps[ps.length - 1].end && ps[ps.length - 1].end >= today() ? cur : addDays(cur, avg);
+      cycles.push({ start: next, fs: addDays(next, -16), fe: addDays(next, -12), ov: addDays(next, -14) });
+      cur = next;
+    }
   }
-  return { ps, avg, irregular, last, cycles };
-}
-const periodEnd = p => p.end || addDays(p.start, D.cycle.periodLen - 1);
-function dayClass(s, cd) {
-  for (const p of cd.ps) if (s >= p.start && s <= periodEnd(p)) return 'p';
-  for (const c of cd.cycles) {
-    if (s >= c.start && s <= c.end) return 'pp';
-    if (s === c.ov) return 'o';
-    if (s >= c.fs && s <= c.fe) return 'f';
-  }
-  return '';
-}
-function cycleLine() {
-  const cd = cycleData(), t = today();
-  if (!cd.last) return { val: '—', sub: 'Registre a 1ª menstruação' };
-  const cls = dayClass(t, cd);
-  const day = diff(t, cd.last.start) + 1;
-  if (cls === 'p') return { val: `Dia ${day}`, sub: 'Menstruação' };
-  const nx = cd.cycles.find(c => c.start >= t) || cd.cycles[0];
-  const dn = diff(nx.start, t);
-  if (cls === 'o') return { val: 'Ovulação', sub: 'prevista para hoje' };
-  if (cls === 'f') return { val: 'Janela fértil', sub: `menstruação em ${dn} dias` };
-  if (dn >= 0) return { val: dn === 0 ? 'Hoje' : `${dn} dia${dn > 1 ? 's' : ''}`, sub: 'p/ prox. menstruação' };
-  return { val: 'Atrasada?', sub: `previsão era ${fmtShort(nx.start)}` };
-}
-function pillStatus(date) {
-  const p = D.pill;
-  if (!p.on || !p.start) return null;
-  const d = diff(date, p.start);
-  if (d < 0) return null;
-  const len = p.active + p.pause, pos = len ? d % len : 0;
-  return { pos: pos + 1, take: p.pause === 0 || pos < p.active, len, nextStart: addDays(date, len - pos) };
-}
-function calHTML() {
-  const y = calM.getFullYear(), m = calM.getMonth(), cd = cycleData(), t = today();
-  const off = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate();
-  let cells = DOW.map(l => `<div class="dow">${l}</div>`).join('') + '<div></div>'.repeat(off);
-  for (let d = 1; d <= n; d++) {
-    const s = iso(new Date(y, m, d)), c = dayClass(s, cd);
-    cells += `<div class="d ${c} ${s === t ? 't' : ''}">${d}${D.pill.taken[s] ? '<span class="pill"></span>' : ''}</div>`;
-  }
-  return `<div class="calhead"><button class="ico" data-act="cal" data-n="-1" aria-label="Mês anterior">‹</button>
-    <b>${calM.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</b>
-    <button class="ico" data-act="cal" data-n="1" aria-label="Próximo mês">›</button></div><div class="cal">${cells}</div>
-    <div class="legend"><span><i style="background:var(--rose)"></i>Menstruação</span>
-    <span><i style="border:2px dashed var(--rose)"></i>Prevista</span>
-    <span><i style="background:var(--fertile)"></i>Período fértil</span>
-    <span><i style="background:var(--fertile);box-shadow:inset 0 0 0 2px #1e7a55"></i>Ovulação</span>
-    <span><i style="background:var(--accent);border-radius:50%"></i>Pílula tomada</span></div>`;
+  return { ps, avg, plen, cycles, irregular: cnt >= 3 && Math.abs(avg - D.cycle.cycleLen) > 5 };
 }
 
-/* =====================  Views  ===================== */
+function pillStatus(date) {
+  const c = D.pill; if (!c || !c.on || !c.start) return null;
+  const days = diff(date, c.start); if (days < 0) return null;
+  const cycle = (c.active || 21) + (c.pause || 7); if (!cycle) return null;
+  const pos = (days % cycle) + 1;
+  const take = pos <= c.active;
+  const nextStart = addDays(date, cycle - pos + 1);
+  return { pos, take, nextStart };
+}
+
+function calHTML() {
+  const y = calM.getFullYear(), m = calM.getMonth(), t = today();
+  const first = new Date(y, m, 1), startDay = first.getDay(), total = new Date(y, m + 1, 0).getDate();
+  const cd = cycleData(), ps = cd.ps;
+  const days = [];
+  for (let i = 0; i < startDay; i++) days.push('<div class="d"></div>');
+  for (let d = 1; d <= total; d++) {
+    const ds = `${y}-${pad(m + 1)}-${pad(d)}`;
+    const isToday = ds === t;
+    const inPeriod = ps.some(p => ds >= p.start && ds <= (p.end || p.start));
+    const inFutureP = !inPeriod && cd.cycles.some(c => ds >= c.start && ds <= addDays(c.start, cd.plen - 1));
+    const isOv = cd.cycles.some(c => ds === c.ov);
+    const inFertile = !isOv && cd.cycles.some(c => ds >= c.fs && ds <= c.fe);
+    const cls = ['d', isToday ? 't' : '', inPeriod ? 'p' : '', inFutureP ? 'pp' : '', isOv ? 'o' : '', inFertile ? 'f' : ''].filter(Boolean).join(' ');
+    const psPill = pillStatus(ds);
+    const pillDot = psPill && psPill.take && D.pill.taken[ds] ? '<i class="pill"></i>' : '';
+    days.push(`<div class="${cls}"><span>${d}</span>${pillDot}</div>`);
+  }
+  return `<div class="calhead"><button class="ico sm" data-act="cal" data-n="-1">‹</button>
+    <b>${calM.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</b>
+    <button class="ico sm" data-act="cal" data-n="1">›</button></div>
+    <div class="cal">${DOW.map(w => `<div class="dow">${w}</div>`).join('')}${days.join('')}</div>
+    <div class="legend"><span><i style="background:var(--rose)"></i> Menstruação</span>
+    <span><i style="border:2px dashed var(--rose)"></i> Previsão</span>
+    <span><i style="background:var(--fertile)"></i> Período fértil / ovulação</span></div>`;
+}
+
+/* =====================  Pomodoro  ===================== */
+const P = { phase: 'focus', left: null, running: false, end: 0, cycles: 0, t: null };
+const pTotal = () => (P.phase === 'focus' ? D.study.focus : (P.cycles > 0 && P.cycles % 4 === 0 ? 15 : D.study.rest)) * 60;
+function updateClock() {
+  const c = $('#pomoClock'); if (!c) return;
+  c.textContent = `${pad(Math.floor(P.left / 60))}:${pad(P.left % 60)}`;
+  $('#pomoPhase').textContent = (P.phase === 'focus' ? '🎯 Foco' : '☕ Pausa') + ` · ciclos hoje: ${P.cycles}`;
+  $('#pStartBtn').textContent = P.running ? 'Pausar' : 'Iniciar';
+}
+function pTick() {
+  P.left = Math.max(0, Math.ceil((P.end - Date.now()) / 1000));
+  document.title = P.running ? `${pad(Math.floor(P.left / 60))}:${pad(P.left % 60)} · Vida em Ordem` : 'Vida em Ordem';
+  updateClock();
+  if (P.left <= 0) pFinish();
+}
+function pFinish() {
+  if (P.phase === 'focus') {
+    mutate(d => { d.study.log[today()] = (d.study.log[today()] || 0) + d.study.focus; }, { render: view === 'estudos' });
+    P.cycles++; P.phase = 'rest'; notify('🍅 Foco concluído!', `+${D.study.focus} min na meta. Hora da pausa.`, 'pomo');
+  } else { P.phase = 'focus'; notify('☕ Pausa terminou', 'Vamos para mais um foco?', 'pomo'); }
+  beep(); P.left = pTotal(); P.end = Date.now() + P.left * 1000; updateClock();
+}
+function beep() {
+  try {
+    const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+    o.connect(g); g.connect(a.destination); o.frequency.value = 880; g.gain.value = .15; o.start(); o.stop(a.currentTime + .35);
+  } catch { }
+  navigator.vibrate && navigator.vibrate([200, 100, 200]);
+}
+
+/* =====================  Notificações  ===================== */
+function notify(title, body, tag) {
+  toast(title);
+  if ('Notification' in window && Notification.permission === 'granted' && navigator.serviceWorker) {
+    navigator.serviceWorker.ready.then(r => r.showNotification(title, {
+      body,
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      vibrate: [200, 100, 200],
+      tag: tag || 'vo_default'
+    })).catch(() => { });
+  }
+}
+
+function notifyOnce(key, title, body) {
+  let n = {}; try { n = JSON.parse(localStorage.getItem(NTKEY)) || {}; } catch { }
+  if (n[key]) return;
+  const t = today(); for (const k in n) if (!k.includes(t)) delete n[k];
+  n[key] = 1; localStorage.setItem(NTKEY, JSON.stringify(n));
+  notify(title, body, key);
+}
+
+function reminderTick() {
+  const t = today(), hm = nowHM();
+  const notifs = D.notifSettings || { agenda: true, checklist: true, ciclo: true, habitos: true };
+
+  // 1. CICLO (Pílula e Previsão)
+  if (notifs.ciclo !== false) {
+    const ps = pillStatus(t);
+    if (ps && ps.take && !D.pill.taken[t] && hm >= D.pill.time) {
+      notifyOnce('pill_' + t, '💊 Hora da Pílula', 'Lembrete do anticoncepcional marcado para ' + D.pill.time + '.');
+    }
+    const cd = cycleData();
+    const nx = cd.cycles.find(x => x.start >= t);
+    if (nx && nx.start === t && hm >= '08:00') {
+      notifyOnce('cyc_start_' + t, '🌸 Ciclo Menstrual', 'Previsão de início da menstruação para hoje.');
+    }
+    if (nx && nx.fs === t && hm >= '08:00') {
+      notifyOnce('cyc_fertile_' + t, '🌸 Período Fértil', 'Início da sua janela fértil previsto para hoje.');
+    }
+  }
+
+  // 2. AGENDA (Compromissos)
+  if (notifs.agenda !== false) {
+    (D.agenda || []).filter(a => a.date === t && a.time).forEach(a => {
+      const nowMins = +hm.slice(0, 2) * 60 + +hm.slice(3);
+      const evMins = +a.time.slice(0, 2) * 60 + +a.time.slice(3);
+      const diffM = nowMins - evMins;
+      if (diffM >= 0 && diffM <= 45) {
+        notifyOnce('ag_' + t + '_' + a.id, '📅 ' + a.title, 'Compromisso agendado para ' + a.time + (a.notes ? ' · ' + a.notes : ''));
+      }
+    });
+  }
+
+  // 3. CHECKLIST (Tarefas com horário e resumo matinal)
+  if (notifs.checklist !== false) {
+    const todayTasks = (D.checklist || []).filter(c => !c.done && c.date === t);
+    todayTasks.forEach(c => {
+      if (c.time) {
+        const nowMins = +hm.slice(0, 2) * 60 + +hm.slice(3);
+        const taskMins = +c.time.slice(0, 2) * 60 + +c.time.slice(3);
+        const diffM = nowMins - taskMins;
+        if (diffM >= 0 && diffM <= 45) {
+          notifyOnce('chk_' + t + '_' + c.id, '📝 Checklist: ' + c.text, 'Horário marcado: ' + c.time);
+        }
+      }
+    });
+    if (todayTasks.length > 0 && hm >= '09:00') {
+      notifyOnce('chk_daily_' + t, '📝 Checklist de Hoje', 'Você tem ' + todayTasks.length + ' tarefa(s) pendente(s) na sua checklist hoje.');
+    }
+  }
+
+  // 4. HÁBITOS (Lembretes diários)
+  if (notifs.habitos !== false) {
+    const hp = rtProg('habits', t);
+    const pend = hp.total - hp.n;
+    if (pend > 0) {
+      if (hm >= '08:30') {
+        notifyOnce('hab_morning_' + t, '✅ Hábitos do Dia', 'Você tem ' + pend + ' hábito(s) programados para hoje. Bom dia!');
+      }
+      if (hm >= '20:30') {
+        notifyOnce('hab_evening_' + t, '✅ Hábitos Pendentes', 'Ainda faltam ' + pend + ' hábito(s) para completar seu dia.');
+      }
+    }
+  }
+}
+
+/* =====================  Firebase Cloud Sync & Auth  ===================== */
+let currentUser = null;
+let syncStatus = 'idle'; // 'idle', 'syncing', 'synced', 'error'
+let syncTimer = null;
+let userMenuOpen = false;
+
+function scheduleCloudSync() {
+  if (!currentUser || !window.firebaseBridge) return;
+  clearTimeout(syncTimer);
+  syncStatus = 'syncing';
+  updateAccountUI();
+  syncTimer = setTimeout(async () => {
+    try {
+      await window.firebaseBridge.saveUserData(currentUser.uid, D);
+      syncStatus = 'synced';
+      updateAccountUI();
+    } catch (e) {
+      console.warn('Erro ao salvar no Firestore:', e);
+      syncStatus = 'error';
+      updateAccountUI();
+    }
+  }, 1200);
+}
+
+async function forceCloudSync() {
+  if (!currentUser || !window.firebaseBridge) {
+    return toast('Entre com uma conta Google para sincronizar.');
+  }
+  syncStatus = 'syncing';
+  updateAccountUI();
+  try {
+    await window.firebaseBridge.saveUserData(currentUser.uid, D);
+    syncStatus = 'synced';
+    toast('Dados salvos na nuvem Google ✓');
+    updateAccountUI();
+  } catch (e) {
+    syncStatus = 'error';
+    updateAccountUI();
+    toast('Erro ao sincronizar. Tente novamente.');
+  }
+}
+
+function updateAccountUI() {
+  const btn = $('#userBtn');
+  const dropdown = $('#userDropdown');
+  if (!btn) return;
+
+  if (currentUser) {
+    const photo = currentUser.photoURL;
+    const name = currentUser.displayName || currentUser.email || 'Usuário';
+    const initial = name.charAt(0).toUpperCase();
+
+    btn.innerHTML = photo
+      ? `<img src="${esc(photo)}" class="user-avatar-img" alt="${esc(name)}" referrerpolicy="no-referrer">`
+      : `<span class="user-avatar-initial">${esc(initial)}</span>`;
+
+    btn.title = `Conectado como ${name}`;
+
+    if (dropdown) {
+      const syncLabel = syncStatus === 'syncing' ? '⏳ Sincronizando com a nuvem…' : (syncStatus === 'error' ? '⚠️ Erro ao salvar' : '☁️ Nuvem Google atualizada ✓');
+      dropdown.innerHTML = `
+        <div class="user-dropdown-header">
+          ${photo
+            ? `<img src="${esc(photo)}" class="user-avatar-img" style="width:36px;height:36px" alt="${esc(name)}" referrerpolicy="no-referrer">`
+            : `<span class="user-avatar-initial" style="width:36px;height:36px;font-size:1.1rem">${esc(initial)}</span>`}
+          <div class="user-dropdown-info">
+            <b>${esc(name)}</b>
+            <small>${esc(currentUser.email || '')}</small>
+          </div>
+        </div>
+        <div class="user-dropdown-sync">${syncLabel}</div>
+        <div class="user-dropdown-actions">
+          <button data-act="openSettings">⚙️ Configurações (Tema, Fontes, Avisos)</button>
+          <button data-act="openapkguide">📱 Instalar App / Gerar APK</button>
+          <button data-act="forcesync">🔄 Sincronizar agora</button>
+          <button data-act="logout">🚪 Sair da conta</button>
+        </div>`;
+    }
+  } else {
+    btn.innerHTML = `<span class="user-btn-content">👤 Entrar</span>`;
+    btn.title = 'Entrar com Google';
+    if (dropdown) {
+      dropdown.innerHTML = `
+        <div class="user-dropdown-header">
+          <span class="user-avatar-initial" style="width:36px;height:36px">👤</span>
+          <div class="user-dropdown-info">
+            <b>Nenhuma conta conectada</b>
+            <small>Dados salvos localmente</small>
+          </div>
+        </div>
+        <div class="user-dropdown-actions">
+          <button class="pri" data-act="login" style="background:var(--accent);color:#fff">🔑 Entrar com Google</button>
+          <button data-act="openapkguide">📱 Instalar App / Gerar APK</button>
+          <button data-act="openSettings">⚙️ Configurações (Tema, Fontes, Avisos)</button>
+        </div>`;
+    }
+  }
+}
+
+function initFirebaseAuth() {
+  if (!window.firebaseBridge) return;
+  window.firebaseBridge.onAuthChange(async (user) => {
+    currentUser = user;
+    updateAccountUI();
+
+    if (user) {
+      closeModal();
+      try {
+        const remote = await window.firebaseBridge.loadUserData(user.uid);
+        if (remote && (remote.updatedAt || 0) > (D.updatedAt || 0)) {
+          D = merge(DEF(), remote);
+          localStorage.setItem(KEY, JSON.stringify(D));
+          initAppearance();
+          render();
+          toast('Dados sincronizados com sua conta Google ✓');
+        } else {
+          await window.firebaseBridge.saveUserData(user.uid, D);
+          toast(`Conectado como ${user.displayName || user.email} ✓`);
+        }
+        syncStatus = 'synced';
+        updateAccountUI();
+      } catch (err) {
+        console.warn('Erro ao carregar dados do usuário:', err);
+      }
+    } else {
+      const dismissed = localStorage.getItem('vo_welcome_dismissed');
+      if (!dismissed) {
+        showWelcomeModal();
+      }
+    }
+  });
+}
+
+/* =====================  Modais (Login, Configurações e APK)  ===================== */
+function showWelcomeModal() {
+  const container = $('#modalContainer');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal welcome-card" onclick="event.stopPropagation()">
+        <div class="welcome-icon">✨</div>
+        <h2>Vida em Ordem</h2>
+        <p>Sua rotina, checklist, ciclo, estudos e hábitos organizados em um só lugar. Entre com sua conta Google para salvar tudo na nuvem e receber seus avisos!</p>
+        <div style="margin:1.4rem 0">
+          <button class="google-login-btn" data-act="login">
+            <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
+            Entrar com Google
+          </button>
+        </div>
+        <button class="ghost sm" data-act="dismissWelcome" style="margin-top:.4rem">Continuar sem login por enquanto</button>
+      </div>
+    </div>`;
+}
+
+function openSettingsModal() {
+  userMenuOpen = false;
+  const dropdown = $('#userDropdown');
+  if (dropdown) dropdown.hidden = true;
+
+  const container = $('#modalContainer');
+  if (!container) return;
+
+  const curColor = D.themeColor || '#8e4585';
+  const rgb = hexToRgb(curColor);
+  const curFont = D.fontFamily || 'system-ui';
+  const notifs = D.notifSettings || { agenda: true, checklist: true, ciclo: true, habitos: true };
+  const permGranted = ('Notification' in window) && Notification.permission === 'granted';
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <h2>⚙️ Configurações</h2>
+          <button class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <!-- 1. NOTIFICAÇÕES -->
+        <section style="margin-bottom:1.4rem">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h3 style="font-size:1rem;margin:0">🔔 Notificações e Avisos</h3>
+            <span class="badge ${permGranted ? 'ok' : ''}">${permGranted ? 'Ativadas ✓' : 'Aguardando permissão'}</span>
+          </div>
+          <p class="note" style="margin:.3rem 0 .6rem">Receba alertas de compromissos, tarefas com horário, pílula e hábitos no seu aparelho.</p>
+
+          <div class="row" style="margin-bottom:.6rem">
+            ${permGranted ? '' : '<button class="pri sm" data-act="reqnotif">🔔 Permitir Notificações no Sistema</button>'}
+            <button class="ghost sm" data-act="testnotif">🧪 Testar Notificação Agora</button>
+          </div>
+
+          <div class="notif-settings-box">
+            <div class="notif-toggle-row">
+              <label>
+                <input type="checkbox" ${notifs.agenda !== false ? 'checked' : ''} data-chg="notiftoggle" data-k="agenda">
+                <span>📅 <b>Agenda:</b> Lembretes de compromissos no horário</span>
+              </label>
+            </div>
+            <div class="notif-toggle-row">
+              <label>
+                <input type="checkbox" ${notifs.checklist !== false ? 'checked' : ''} data-chg="notiftoggle" data-k="checklist">
+                <span>📝 <b>Checklist:</b> Alerta de tarefas agendadas e resumo matinal</span>
+              </label>
+            </div>
+            <div class="notif-toggle-row">
+              <label>
+                <input type="checkbox" ${notifs.ciclo !== false ? 'checked' : ''} data-chg="notiftoggle" data-k="ciclo">
+                <span>🌸 <b>Ciclo:</b> Lembrete da pílula e previsão de menstruação/fértil</span>
+              </label>
+            </div>
+            <div class="notif-toggle-row">
+              <label>
+                <input type="checkbox" ${notifs.habitos !== false ? 'checked' : ''} data-chg="notiftoggle" data-k="habitos">
+                <span>✅ <b>Hábitos:</b> Lembretes matinal e noturno de rotinas pendentes</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. INSTALAÇÃO / APK -->
+        <section style="margin-bottom:1.4rem">
+          <h3 style="font-size:1rem;margin-bottom:.4rem">📱 Aplicativo APK e Android</h3>
+          <p class="note" style="margin-top:0">Transforme este app em um aplicativo no seu Android.</p>
+          <div class="row">
+            <button class="pri sm" data-act="installFromSettings">⬇ Instalar no Dispositivo</button>
+            <button class="ghost sm" data-act="openapkguide">📖 Passo a passo do arquivo .APK</button>
+          </div>
+        </section>
+
+        <!-- 3. COR DO TEMA -->
+        <section style="margin-bottom:1.4rem">
+          <h3 style="font-size:1rem;margin-bottom:.4rem">🎨 Cor do Tema (Roda RGB)</h3>
+          <p class="note" style="margin-top:0;margin-bottom:.8rem">Escolha pela roda de cores, pelos sliders RGB ou selecione uma paleta pronta:</p>
+          
+          <div class="color-picker-box">
+            <div class="color-picker-row">
+              <input type="color" id="themeColorInput" class="color-circle-input" value="${curColor}" title="Clique para abrir a roda RGB">
+              <div style="flex:1">
+                <b id="themeHexDisplay" style="font-size:1.1rem;font-family:monospace">${curColor.toUpperCase()}</b>
+                <small class="muted" style="display:block">Toque no círculo para abrir a roda de cores</small>
+              </div>
+            </div>
+
+            <div class="rgb-sliders">
+              <div class="rgb-slider-row">
+                <span style="color:#e53935;font-weight:700">R</span>
+                <input type="range" id="sliderR" min="0" max="255" value="${rgb.r}">
+                <span id="valR">${rgb.r}</span>
+              </div>
+              <div class="rgb-slider-row">
+                <span style="color:#43a047;font-weight:700">G</span>
+                <input type="range" id="sliderG" min="0" max="255" value="${rgb.g}">
+                <span id="valG">${rgb.g}</span>
+              </div>
+              <div class="rgb-slider-row">
+                <span style="color:#1e88e5;font-weight:700">B</span>
+                <input type="range" id="sliderB" min="0" max="255" value="${rgb.b}">
+                <span id="valB">${rgb.b}</span>
+              </div>
+            </div>
+
+            <div>
+              <small class="muted" style="font-weight:600">Paletas recomendadas:</small>
+              <div class="palette-swatches">
+                ${PALETTE.map(p => `
+                  <button type="button" class="swatch-btn ${p.color.toLowerCase() === curColor.toLowerCase() ? 'on' : ''}"
+                    style="background:${p.color}" title="${p.name}" data-act="pickPalette" data-c="${p.color}"></button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. FONTE DO TEXTO -->
+        <section style="margin-bottom:1.4rem">
+          <h3 style="font-size:1rem;margin-bottom:.4rem">🔤 Fonte do Texto</h3>
+          <p class="note" style="margin-top:0;margin-bottom:.6rem">Selecione o estilo de tipografia preferido:</p>
+          <div class="font-list">
+            ${Object.entries(FONTS).map(([k, f]) => `
+              <div class="font-option ${curFont === k ? 'on' : ''}" data-act="pickFont" data-f="${k}" style="font-family:${f.stack}">
+                <span>${f.name}</span>
+                <span>${curFont === k ? '✓' : ''}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="font-preview-quote" id="fontPreviewBox">
+            "A organização traz leveza para a rotina e clareza para a mente."
+          </div>
+        </section>
+
+        <div class="row" style="justify-content:flex-end">
+          <button class="ghost sm" data-act="resetAppearance">Restaurar Padrões</button>
+          <button class="pri sm" data-act="closeModal">Concluir</button>
+        </div>
+      </div>
+    </div>`;
+
+  setupSettingsListeners();
+}
+
+function showApkGuideModal() {
+  const container = $('#modalContainer');
+  if (!container) return;
+  const appUrl = window.location.origin;
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <h2>📱 Aplicativo APK e Android</h2>
+          <button class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <div class="apk-card">
+          <h4> Opção 1: Instalação Direta no Celular (Recomendado)</h4>
+          <p style="font-size:.88rem;color:var(--muted);margin-bottom:.5rem">O app já possui manifesto PWA completo e Service Worker ativo:</p>
+          <ol class="apk-steps">
+            <li>No navegador Chrome do Android, clique no botão <b>"⬇ Instalar"</b> no topo do app (ou no menu ⋮ do Chrome).</li>
+            <li>Toque em <b>"Instalar aplicativo"</b> ou <b>"Adicionar à tela inicial"</b>.</li>
+            <li>O aplicativo será instalado como app nativo com ícone independente, tela cheia e notificações!</li>
+          </ol>
+          ${deferred ? '<button class="pri sm" data-act="install">Instalar Agora no Android</button>' : ''}
+        </div>
+
+        <div class="apk-card" style="margin-top:.8rem">
+          <h4>📦 Opção 2: Gerar arquivo .APK Standalone (PWABuilder / TWA)</h4>
+          <p style="font-size:.88rem;color:var(--muted);margin-bottom:.5rem">Para compilar um arquivo <code>.apk</code> ou pacote para a Google Play Store:</p>
+          <ol class="apk-steps">
+            <li>Acesse a ferramenta gratuita oficial da Microsoft/Google: <br>
+              <a href="https://www.pwabuilder.com/" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-weight:600">pwabuilder.com</a>
+            </li>
+            <li>Cole o endereço deste aplicativo: <br>
+              <code style="display:inline-block;margin:.3rem 0;user-select:all">${esc(appUrl)}</code>
+            </li>
+            <li>Clique em <b>"Start"</b> e depois em <b>"Package for Android"</b>.</li>
+            <li>Baixe o seu arquivo <b>.apk assinado</b> pronto para instalar em qualquer smartphone Android!</li>
+          </ol>
+        </div>
+
+        <div class="row" style="justify-content:flex-end;margin-top:1rem">
+          <button class="pri sm" data-act="closeModal">Entendi</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function setupSettingsListeners() {
+  const colorInput = $('#themeColorInput');
+  const sliderR = $('#sliderR');
+  const sliderG = $('#sliderG');
+  const sliderB = $('#sliderB');
+  const valR = $('#valR');
+  const valG = $('#valG');
+  const valB = $('#valB');
+  const hexDisplay = $('#themeHexDisplay');
+
+  function updateFromRgb(r, g, b) {
+    const hex = rgbToHex(r, g, b);
+    if (colorInput) colorInput.value = hex;
+    if (valR) valR.textContent = r;
+    if (valG) valG.textContent = g;
+    if (valB) valB.textContent = b;
+    if (hexDisplay) hexDisplay.textContent = hex.toUpperCase();
+    applyTheme(hex, true);
+  }
+
+  if (colorInput) {
+    colorInput.addEventListener('input', e => {
+      const hex = e.target.value;
+      const rgb = hexToRgb(hex);
+      if (sliderR) sliderR.value = rgb.r;
+      if (sliderG) sliderG.value = rgb.g;
+      if (sliderB) sliderB.value = rgb.b;
+      if (valR) valR.textContent = rgb.r;
+      if (valG) valG.textContent = rgb.g;
+      if (valB) valB.textContent = rgb.b;
+      if (hexDisplay) hexDisplay.textContent = hex.toUpperCase();
+      applyTheme(hex, true);
+    });
+  }
+
+  [sliderR, sliderG, sliderB].forEach(slider => {
+    if (slider) {
+      slider.addEventListener('input', () => {
+        const r = +sliderR.value;
+        const g = +sliderG.value;
+        const b = +sliderB.value;
+        updateFromRgb(r, g, b);
+      });
+    }
+  });
+}
+
+function closeModal() {
+  const container = $('#modalContainer');
+  if (container) container.innerHTML = '';
+}
+
+/* =====================  Vistas da Aplicação  ===================== */
 const views = {};
 
+// Vista HOJE
 views.hoje = () => {
-  const t = today(), ps = pillStatus(t), cl = cycleLine();
+  const t = today();
   const h = rtProg('habits', t), e = rtProg('exercises', t), di = rtProg('diet', t);
-  const min = D.study.log[t] || 0, wat = D.water.log[t] || 0;
-  const ag = D.agenda.filter(a => a.date === t).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const min = (D.study.log && D.study.log[t]) || 0, wat = (D.water.log && D.water.log[t]) || 0;
+  const ps = pillStatus(t), cl = (() => {
+    const c = cycleData();
+    const nx = c.cycles.find(x => x.start >= t) || c.cycles[0];
+    if (!nx) return { val: '—', sub: 'Sem registro' };
+    const d = diff(nx.start, t);
+    return { val: `em ${d}d`, sub: `Mestruação: ${fmtShort(nx.start)}` };
+  })();
+  const ag = (D.agenda || []).filter(a => a.date === t).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const chList = D.checklist || [];
+  const chToday = chList.filter(c => c.date === t || !c.done);
+  const chDone = chList.filter(c => c.done).length;
+  const chTotal = chList.length;
+
   const stat = (go, icon, title, val, sub, pct) => `<button class="stat" data-act="go" data-v="${go}"><span>${icon}</span><b>${title}</b><em>${val}</em><small>${sub || ''}</small>${pct != null ? `<div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>` : ''}</button>`;
   const pct = (n, t2) => t2 ? Math.round(n / t2 * 100) : 0;
-  const j = D.journal[t];
+  const j = D.journal && D.journal[t];
+
   return `<p class="date">${fmtLong(t)}</p>
   ${ps && ps.take && !D.pill.taken[t] ? `<section class="card alert"><b>💊 Pílula de hoje (${esc(D.pill.time)})</b>
      <p style="margin:.3rem 0 .6rem">Dia ${ps.pos} da cartela.</p><button class="pri" data-act="pilltake">Já tomei</button></section>` : ''}
   ${ps && !ps.take ? `<section class="card"><b>💊 Pausa da cartela</b><br><small>Nova cartela em ${fmtShort(ps.nextStart)}.</small></section>` : ''}
   ${ag.length ? `<section class="card"><h2>📅 Compromissos de hoje</h2><ul class="list">${ag.map(a => `<li><span><b>${esc(a.time || 'Dia todo')}</b> ${esc(a.title)}</span></li>`).join('')}</ul></section>` : ''}
+  
   <div class="grid">
+    ${stat('checklist', '📝', 'Checklist', `${chDone}/${chTotal}`, 'concluídas', pct(chDone, chTotal))}
     ${stat('habitos', '✅', 'Hábitos', `${h.n}/${h.total}`, '', pct(h.n, h.total))}
     ${stat('treino', '💪', 'Treino', `${e.n}/${e.total}`, '', pct(e.n, e.total))}
     ${stat('estudos', '📚', 'Estudos', `${min} min`, `meta ${D.study.goal} min`, pct(min, D.study.goal))}
@@ -213,16 +831,162 @@ views.hoje = () => {
     ${stat('comida', '🥗', 'Dieta', `${di.n}/${di.total}`, '', pct(di.n, di.total))}
     ${stat('ciclo', '🌸', 'Ciclo', cl.val, cl.sub)}
     ${stat('diario', '📓', 'Diário', j && (j.text || j.reflect) ? 'Escrito ✓' : 'Escrever', j && j.mood ? ['', '😞', '😕', '😐', '🙂', '😄'][j.mood] : '')}
-    ${stat('compras', '🛒', 'Compras', D.shop.filter(i => !i.done).length, 'itens na lista')}
-  </div>`;
+    ${stat('compras', '🛒', 'Compras', (D.shop || []).filter(i => !i.done).length, 'itens na lista')}
+  </div>
+  
+  ${chToday.length ? `
+    <section class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem">
+        <h2>📝 Checklist rápida</h2>
+        <button class="ghost sm" data-act="go" data-v="checklist">Ver tudo</button>
+      </div>
+      <ul class="list">${chToday.slice(0, 5).map(c => `
+        <li class="${c.done ? 'done' : ''}">
+          <label>
+            <input type="checkbox" ${c.done ? 'checked' : ''} data-chg="checktoggle" data-id="${c.id}">
+            <span>${esc(c.text)} ${c.time ? `<small class="muted">⏰ ${c.time}</small>` : ''}</span>
+          </label>
+        </li>
+      `).join('')}</ul>
+    </section>
+  ` : ''}`;
+};
+
+// Vista: CHECKLIST com Pesquisa por Nome e Data
+views.checklist = () => {
+  const items = D.checklist || [];
+  const t = today();
+  
+  const filterMap = {
+    todas: () => true,
+    pendentes: i => !i.done,
+    concluidas: i => i.done,
+    hoje: i => i.date === t
+  };
+  
+  const filterFn = filterMap[checkF] || filterMap.todas;
+  let filtered = items.filter(filterFn);
+
+  // Aplica pesquisa rápida por nome ou data
+  if (checkSearch.trim()) {
+    const q = checkSearch.trim().toLowerCase();
+    filtered = filtered.filter(item => {
+      const textMatch = (item.text || '').toLowerCase().includes(q);
+      const dateRaw = (item.date || '');
+      const dateShort = fmtShort(item.date || t);
+      const dateFull = fmtFull(item.date || t);
+      const dateMatch = dateRaw.includes(q) || dateShort.includes(q) || dateFull.includes(q);
+      const timeMatch = (item.time || '').includes(q);
+      return textMatch || dateMatch || timeMatch;
+    });
+  }
+
+  filtered.sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
+  });
+
+  const doneCount = items.filter(i => i.done).length;
+  const totalCount = items.length;
+
+  return `
+    <section class="card">
+      <h2>📝 Minha Checklist</h2>
+      ${progress(doneCount, totalCount)}
+      
+      <!-- Barra de Pesquisa Rápida -->
+      <div style="margin-top:.8rem">
+        <div class="search-box">
+          <span style="font-size:1.1rem;opacity:.7">🔍</span>
+          <input type="text" id="checklistSearchInput" placeholder="Pesquisar por nome ou data (ex.: médico, 14/10, 2026-10)..."
+            value="${esc(checkSearch)}" data-inp="checksearch" autocomplete="off">
+          ${checkSearch ? `<button type="button" class="search-clear" data-act="clearchecksearch" title="Limpar pesquisa">✕</button>` : ''}
+        </div>
+        ${checkSearch ? `
+          <div class="search-feedback">
+            <small class="muted">Filtrando por "<b>${esc(checkSearch)}</b>" — <b>${filtered.length}</b> encontrado(s)</small>
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Abas de Filtros -->
+      <div class="chips">
+        ${[
+          ['todas', 'Todas (' + totalCount + ')'],
+          ['pendentes', 'Pendentes (' + (totalCount - doneCount) + ')'],
+          ['concluidas', 'Concluídas (' + doneCount + ')'],
+          ['hoje', 'Hoje (' + items.filter(i => i.date === t).length + ')']
+        ].map(([k, label]) => `
+          <button class="${checkF === k ? 'on' : ''}" data-act="checkfilter" data-v="${k}">${label}</button>
+        `).join('')}
+      </div>
+
+      <ul class="list" style="margin-top:.8rem">
+        ${filtered.map(item => {
+          if (editingChecklistId === item.id) {
+            return `
+              <li class="checklist-item">
+                <form data-submit="saveCheckEdit" data-id="${item.id}" class="edit-box">
+                  <label class="f" style="margin-top:0">Alterar tarefa:</label>
+                  <input type="text" name="text" value="${esc(item.text)}" required maxlength="180">
+                  <div class="two" style="margin-top:.4rem">
+                    <div><label class="f">Data</label><input type="date" name="date" value="${item.date || t}"></div>
+                    <div><label class="f">Horário</label><input type="time" name="time" value="${item.time || ''}"></div>
+                  </div>
+                  <div class="row" style="margin-top:.6rem">
+                    <button class="pri sm">Salvar alterações</button>
+                    <button type="button" class="ghost sm" data-act="canceledit">Cancelar</button>
+                  </div>
+                </form>
+              </li>`;
+          }
+
+          return `
+            <li class="checklist-item ${item.done ? 'done' : ''}">
+              <div class="checklist-content">
+                <input type="checkbox" ${item.done ? 'checked' : ''} data-chg="checktoggle" data-id="${item.id}" title="Marcar como concluído">
+                <div class="checklist-text-wrap">
+                  <span class="checklist-title">${esc(item.text)}</span>
+                  <div class="checklist-meta">
+                    ${item.date ? `<span class="tag date-tag">📅 ${fmtShort(item.date)}</span>` : ''}
+                    ${item.time ? `<span class="tag time-tag">⏰ ${item.time}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="checklist-actions">
+                <button class="ico sm" data-act="checkedit" data-id="${item.id}" title="Alterar">✏️</button>
+                <button class="dng" data-act="checkdel" data-id="${item.id}" title="Excluir">🗑</button>
+              </div>
+            </li>`;
+        }).join('') || `<li class="empty">${checkSearch ? 'Nenhum resultado encontrado para "' + esc(checkSearch) + '".' : 'Nenhuma tarefa nesta visualização.'}</li>`}
+      </ul>
+
+      ${items.some(i => i.done) ? `
+        <div style="margin-top:.8rem">
+          <button class="ghost sm" data-act="checkclear">Limpar concluídas</button>
+        </div>
+      ` : ''}
+    </section>
+
+    <section class="card">
+      <h2>+ Adicionar Tarefa</h2>
+      <form data-submit="addChecklist">
+        <input type="text" name="text" placeholder="Ex.: Pagar fatura do cartão, Comprar presente…" required maxlength="180">
+        <div class="two" style="margin-top:.5rem">
+          <div><label class="f">Data</label><input type="date" name="date" value="${t}"></div>
+          <div><label class="f">Horário (opcional)</label><input type="time" name="time" value=""></div>
+        </div>
+        <button class="pri" style="margin-top:.7rem">Adicionar à Checklist</button>
+      </form>
+    </section>`;
 };
 
 views.habitos = () => dateBar() + routineHTML('habits');
 views.treino = () => dateBar() + routineHTML('exercises');
 
 views.estudos = () => {
-  const min = D.study.log[sel] || 0, g = D.study.goal;
-  const days = [...Array(7)].map((_, i) => addDays(sel, i - 6)), vals = days.map(d => D.study.log[d] || 0);
+  const min = (D.study.log && D.study.log[sel]) || 0, g = D.study.goal;
+  const days = [...Array(7)].map((_, i) => addDays(sel, i - 6)), vals = days.map(d => (D.study.log && D.study.log[d]) || 0);
   const mx = Math.max(g, ...vals, 1);
   if (P.left == null) P.left = pTotal();
   return dateBar() + `
@@ -247,8 +1011,8 @@ views.estudos = () => {
 };
 
 views.comida = () => {
-  const w = D.water.log[sel] || 0, goal = D.water.goal;
-  const entries = D.food.filter(f => f.date === sel).sort((a, b) => a.time.localeCompare(b.time));
+  const w = (D.water.log && D.water.log[sel]) || 0, goal = D.water.goal;
+  const entries = (D.food || []).filter(f => f.date === sel).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   return dateBar() + routineHTML('diet') + `
   <section class="card"><h2>💧 Água</h2>
     <div class="water">${'💧'.repeat(Math.min(w, 30)) || '<small>Nenhum copo ainda</small>'}</div>
@@ -268,7 +1032,7 @@ views.comida = () => {
 
 views.compras = () => {
   const f = { todos: () => true, necessidade: i => i.kind === 'necessidade', desejo: i => i.kind === 'desejo', comprados: i => i.done };
-  const items = D.shop.filter(f[shopF]).sort((a, b) => a.done - b.done);
+  const items = (D.shop || []).filter(f[shopF] || f.todos).sort((a, b) => a.done - b.done);
   const total = items.filter(i => !i.done).reduce((s, i) => s + (i.price || 0), 0);
   return `<section class="card"><h2>Lista de compras</h2>
     <div class="chips">${[['todos', 'Todos'], ['necessidade', 'Necessidades'], ['desejo', 'Desejos'], ['comprados', 'Comprados']].map(([k, l]) => `<button class="${shopF === k ? 'on' : ''}" data-act="shopf" data-v="${k}">${l}</button>`).join('')}</div>
@@ -276,7 +1040,7 @@ views.compras = () => {
       <span>${esc(i.name)} <span class="tag ${i.kind === 'necessidade' ? 'need' : ''}">${i.kind}</span>${i.price ? ` <small>· ${money(i.price)}</small>` : ''}</span></label>
       <button class="dng" data-act="sdel" data-id="${i.id}" aria-label="Excluir">🗑</button></li>`).join('') || '<li class="empty">Lista vazia.</li>'}</ul>
     ${total ? `<p class="status" style="margin-top:.6rem">Estimado a comprar: ${money(total)}</p>` : ''}
-    ${D.shop.some(i => i.done) ? '<button class="ghost sm" data-act="sclear">Limpar comprados</button>' : ''}
+    ${(D.shop || []).some(i => i.done) ? '<button class="ghost sm" data-act="sclear">Limpar comprados</button>' : ''}
   </section>
   <section class="card"><h2>Adicionar item</h2>
     <form data-submit="addShop"><input type="text" name="name" placeholder="O que você quer comprar?" required maxlength="120">
@@ -287,7 +1051,7 @@ views.compras = () => {
 
 views.agenda = () => {
   const t = today(), by = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
-  const up = D.agenda.filter(a => a.date >= t).sort(by), past = D.agenda.filter(a => a.date < t).sort((a, b) => by(b, a));
+  const up = (D.agenda || []).filter(a => a.date >= t).sort(by), past = (D.agenda || []).filter(a => a.date < t).sort((a, b) => by(b, a));
   const row = a => `<li><span><b>${a.date === t ? 'Hoje' : fmtShort(a.date)}</b>${a.time ? ' · ' + esc(a.time) : ''} — ${esc(a.title)}${a.notes ? `<br><small>${esc(a.notes)}</small>` : ''}</span>
     <span><button class="ico sm" data-act="ics" data-id="${a.id}" title="Adicionar ao calendário do aparelho">📆</button><button class="dng" data-act="adel" data-id="${a.id}" aria-label="Excluir">🗑</button></span></li>`;
   return `<section class="card"><h2>Novo compromisso</h2>
@@ -300,8 +1064,8 @@ views.agenda = () => {
 };
 
 views.diario = () => {
-  const j = D.journal[sel] || {};
-  const recent = Object.keys(D.journal).filter(d => d !== sel && (D.journal[d].text || D.journal[d].reflect)).sort().reverse().slice(0, 12);
+  const j = (D.journal && D.journal[sel]) || {};
+  const recent = Object.keys(D.journal || {}).filter(d => d !== sel && (D.journal[d].text || D.journal[d].reflect)).sort().reverse().slice(0, 12);
   return dateBar() + `<section class="card"><h2>Como foi o dia?</h2>
     <div class="moods">${['😞', '😕', '😐', '🙂', '😄'].map((m, i) => `<button class="${j.mood === i + 1 ? 'on' : ''}" data-act="mood" data-v="${i + 1}">${m}</button>`).join('')}</div>
     <label class="f">Diário</label><textarea data-inp="text" placeholder="Escreva sobre o seu dia…">${esc(j.text || '')}</textarea>
@@ -345,213 +1109,116 @@ views.ciclo = () => {
     ${ps ? `<p class="status" style="margin-top:.8rem">${ps.take ? `Hoje: tomar a pílula (dia ${ps.pos}).` : `Hoje: dia de pausa. Nova cartela em ${fmtShort(ps.nextStart)}.`}</p>
       ${ps.take ? `<label style="display:flex;gap:.6rem;align-items:center"><input type="checkbox" ${c.taken[t] ? 'checked' : ''} data-chg="pilltaken"> Já tomei hoje</label>` : ''}` : '<p class="note">Informe o 1º dia da cartela para começar.</p>'}
     <div class="row" style="margin-top:.6rem">${last7.map(d => `<span title="${fmtShort(d)}" style="text-align:center;font-size:.7rem;color:var(--muted)">${DOW[parse(d).getDay()]}<br>${c.taken[d] ? '✅' : (pillStatus(d) && pillStatus(d).take && d < t ? '⚠️' : '·')}</span>`).join('')}</div>
-    <button class="ghost sm" style="margin-top:.6rem" data-act="notif">🔔 Ativar avisos neste aparelho</button>
-    <p class="note">Os avisos só aparecem com o app aberto (ou em segundo plano). Para garantir, crie também um alarme no relógio do celular.</p>` : ''}
+    <button class="ghost sm" style="margin-top:.6rem" data-act="reqnotif">🔔 Ativar avisos neste aparelho</button>
+    <p class="note">Os avisos só aparecem com o app aberto ou em segundo plano.</p>` : ''}
   </section>`;
 };
 
 views.backup = () => {
-  const st = B.state, last = cfg.lastAt ? new Date(cfg.lastAt).toLocaleString('pt-BR') : '—';
-  return `<section class="card"><h2>☁️ Backup no Google Drive</h2>
-    <p class="status ${st === 'ok' ? 'ok' : st === 'off' ? '' : 'warn'}">${esc(B.msg)}</p>
-    <p class="note">Último backup: ${last}</p>
-    ${cfg.clientId ? `<div class="row" style="margin-top:.6rem">
-      ${cfg.connected ? '' : '<button class="pri" data-act="connect">Entrar com Google e ativar</button>'}
-      ${cfg.connected ? '<button class="pri" data-act="backupnow">Fazer backup agora</button><button class="ghost" data-act="restore">Restaurar do Drive</button><button class="ghost" data-act="disconnect">Desconectar</button>' : ''}</div>
-      ${cfg.connected ? `<label style="display:flex;gap:.6rem;align-items:center;margin-top:.6rem"><input type="checkbox" ${cfg.auto ? 'checked' : ''} data-chg="autobk"> Backup automático a cada alteração</label>` : ''}`
-      : '<p>Falta configurar o ID do cliente Google (uma vez só). Veja o passo a passo abaixo.</p>'}
-    <p class="note">O backup fica numa pasta privada do app no seu Drive. Ao abrir o app em outro aparelho com a mesma conta, os dados mais novos são puxados automaticamente.</p>
-  </section>
-  <details class="card" ${cfg.clientId ? '' : 'open'}><summary>Configuração do Google (uma vez só)</summary>
-    <ol class="steps">
-      <li>Acesse <code>console.cloud.google.com</code> → crie um projeto (ex.: “Vida em Ordem”).</li>
-      <li>Em <b>APIs e serviços → Biblioteca</b>, ative a <b>Google Drive API</b>.</li>
-      <li>Em <b>Tela de permissão OAuth</b>: tipo <i>Externo</i>, preencha o nome do app e seu e-mail; adicione seu e-mail em <b>Usuários de teste</b>.</li>
-      <li>Em <b>Credenciais → Criar credenciais → ID do cliente OAuth → Aplicativo da Web</b>. Em <b>Origens JavaScript autorizadas</b> coloque: <code>${esc(location.origin)}</code></li>
-      <li>Copie o <b>ID do cliente</b> e cole abaixo.</li></ol>
-    <label class="f">ID do cliente OAuth</label>
-    <form class="row" data-submit="saveClient"><input type="text" name="cid" value="${esc(cfg.clientId)}" placeholder="xxxxxxxx.apps.googleusercontent.com"><button class="pri">Salvar</button></form>
-  </details>
-  <section class="card"><h2>Arquivo de segurança</h2><p class="note" style="margin-top:0">Cópia manual, caso queira guardar por conta própria.</p>
-    <div class="row"><button class="ghost" data-act="export">Baixar backup (.json)</button>
-    <label class="ghost" style="border:1px solid var(--accent);border-radius:12px;padding:.55rem .95rem;cursor:pointer;color:var(--accent)">Importar<input type="file" accept=".json,application/json" data-chg="import" hidden></label></div></section>`;
+  const isLogged = !!currentUser;
+  const userEmail = currentUser ? (currentUser.email || currentUser.displayName) : '';
+  const lastSyncText = D.updatedAt ? new Date(D.updatedAt).toLocaleString('pt-BR') : 'Nunca';
+
+  return `
+    <section class="card">
+      <h2>☁️ Backup e Sincronização em Nuvem</h2>
+      <div style="margin-bottom:.8rem">
+        ${isLogged ? `
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem">
+            <span style="font-size:1.6rem">✅</span>
+            <div>
+              <b>Conectado com Google:</b><br>
+              <small>${esc(userEmail)}</small>
+            </div>
+          </div>
+          <p class="note" style="margin-top:0">Seus dados e checklists são sincronizados automaticamente na nuvem Firebase para sua conta Google a cada alteração.</p>
+          <p class="status ok">Última atualização: ${lastSyncText}</p>
+          <div class="row" style="margin-top:.8rem">
+            <button class="pri sm" data-act="forcesync">Sincronizar agora</button>
+            <button class="ghost sm" data-act="openSettings">Configurações (Tema & Fontes)</button>
+            <button class="dng sm" data-act="logout">Desconectar</button>
+          </div>
+        ` : `
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem">
+            <span style="font-size:1.6rem">☁️</span>
+            <div>
+              <b>Nenhuma conta conectada</b><br>
+              <small>Os dados estão salvos apenas neste navegador.</small>
+            </div>
+          </div>
+          <p class="note" style="margin-top:0">Ao entrar com o Google, seus dados e checklists vão diretamente para a sua conta, permitindo acessar de outros aparelhos sem nenhuma configuração manual.</p>
+          <div class="row" style="margin-top:.8rem">
+            <button class="pri sm" data-act="login">🔑 Entrar com Google</button>
+            <button class="ghost sm" data-act="openSettings">Configurações</button>
+          </div>
+        `}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>📱 Aplicativo APK e Notificações</h2>
+      <p class="note" style="margin-top:0">Instale no celular ou compile um arquivo .apk standalone, com notificações automáticas.</p>
+      <div class="row">
+        <button class="ghost sm" data-act="openapkguide">📱 Ver Guia do APK</button>
+        <button class="ghost sm" data-act="testnotif">🔔 Testar Notificações</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>🎨 Aparência</h2>
+      <p class="note" style="margin-top:0">Personalize a cor da aplicação com a roda RGB e troque a fonte do texto.</p>
+      <button class="ghost sm" data-act="openSettings">Abrir Configurações de Tema e Fonte</button>
+    </section>
+
+    <section class="card">
+      <h2>💾 Cópia de Segurança Manual</h2>
+      <p class="note" style="margin-top:0">Você também pode exportar ou restaurar um arquivo .json dos seus dados a qualquer momento.</p>
+      <div class="row">
+        <button class="ghost sm" data-act="export">Baixar backup (.json)</button>
+        <label class="ghost sm" style="border:1px solid var(--accent);border-radius:12px;padding:.35rem .75rem;cursor:pointer;color:var(--accent)">
+          Importar backup (.json)
+          <input type="file" accept=".json,application/json" data-chg="import" hidden>
+        </label>
+      </div>
+    </section>`;
 };
 
 /* =====================  Render e navegação  ===================== */
 function renderNav() {
   $('#nav').innerHTML = NAV.map(([k, ic, l]) => `<button class="${view === k ? 'on' : ''}" data-act="go" data-v="${k}"><span>${ic}</span>${l}</button>`).join('');
 }
+
 function render() {
-  $('#main').innerHTML = views[view]();
-  renderNav(); renderCloud();
+  $('#main').innerHTML = views[view] ? views[view]() : views.hoje();
+  renderNav();
+  updateAccountUI();
   if (view === 'estudos') updateClock();
 }
-function go(v) { view = v; render(); window.scrollTo(0, 0); }
+
+function go(v) {
+  view = v;
+  render();
+  window.scrollTo(0, 0);
+}
+
 let toastT;
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2800); }
-
-/* =====================  Pomodoro  ===================== */
-const P = { phase: 'focus', left: null, running: false, end: 0, cycles: 0, t: null };
-const pTotal = () => (P.phase === 'focus' ? D.study.focus : (P.cycles > 0 && P.cycles % 4 === 0 ? 15 : D.study.rest)) * 60;
-function updateClock() {
-  const c = $('#pomoClock'); if (!c) return;
-  const txt = `${pad(Math.floor(P.left / 60))}:${pad(P.left % 60)}`;
-  c.textContent = txt;
-  $('#pomoPhase').textContent = (P.phase === 'focus' ? '🎯 Foco' : '☕ Pausa') + ` · ciclos hoje: ${P.cycles}`;
-  $('#pStartBtn').textContent = P.running ? 'Pausar' : 'Iniciar';
-}
-function pTick() {
-  P.left = Math.max(0, Math.ceil((P.end - Date.now()) / 1000));
-  document.title = P.running ? `${pad(Math.floor(P.left / 60))}:${pad(P.left % 60)} · Vida em Ordem` : 'Vida em Ordem';
-  updateClock();
-  if (P.left <= 0) pFinish();
-}
-function pFinish() {
-  if (P.phase === 'focus') {
-    mutate(d => { d.study.log[today()] = (d.study.log[today()] || 0) + d.study.focus; }, { render: view === 'estudos' });
-    P.cycles++; P.phase = 'rest'; notify('🍅 Foco concluído!', `+${D.study.focus} min na meta. Hora da pausa.`, 'pomo');
-  } else { P.phase = 'focus'; notify('☕ Pausa terminou', 'Vamos para mais um foco?', 'pomo'); }
-  beep(); P.left = pTotal(); P.end = Date.now() + P.left * 1000; updateClock();
-}
-function beep() {
-  try {
-    const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
-    o.connect(g); g.connect(a.destination); o.frequency.value = 880; g.gain.value = .15; o.start(); o.stop(a.currentTime + .35);
-  } catch { }
-  navigator.vibrate && navigator.vibrate([200, 100, 200]);
+function toast(msg) {
+  const t = $('#toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-/* =====================  Notificações  ===================== */
-function notify(title, body, tag) {
-  toast(title);
-  if ('Notification' in window && Notification.permission === 'granted' && navigator.serviceWorker) {
-    navigator.serviceWorker.ready.then(r => r.showNotification(title, { body, icon: 'icons/icon-192.png', tag })).catch(() => { });
-  }
-}
-function notifyOnce(key, title, body) {
-  let n = {}; try { n = JSON.parse(localStorage.getItem(NTKEY)) || {}; } catch { }
-  if (n[key]) return;
-  const t = today(); for (const k in n) if (!k.includes(t)) delete n[k];
-  n[key] = 1; localStorage.setItem(NTKEY, JSON.stringify(n));
-  notify(title, body, key);
-}
-function reminderTick() {
-  const t = today(), hm = nowHM(), ps = pillStatus(t);
-  if (ps && ps.take && !D.pill.taken[t] && hm >= D.pill.time) notifyOnce('pill' + t, '💊 Hora da pílula', 'Marque como tomada no app.');
-  D.agenda.filter(a => a.date === t && a.time && hm >= a.time).forEach(a => {
-    const mins = (+hm.slice(0, 2) * 60 + +hm.slice(3)) - (+a.time.slice(0, 2) * 60 + +a.time.slice(3));
-    if (mins <= 60) notifyOnce('ag' + t + a.id, '📅 ' + a.title, 'Compromisso agora (' + a.time + ').');
-  });
-}
-
-/* =====================  Backup no Google Drive  ===================== */
-const SCOPE = 'https://www.googleapis.com/auth/drive.appdata', FN = 'vida-em-ordem-backup.json';
-const B = { state: 'off', msg: 'Backup desligado' };
-function setB(state, msg) {
-  B.state = state;
-  B.msg = msg || ({ off: 'Backup desligado', saving: 'Salvando no Drive…', ok: 'Tudo salvo no Drive ✓', pending: 'Alterações aguardando backup…', needlogin: 'Toque em qualquer botão para renovar o login do Google' }[state] || '');
-  renderCloud(); if (view === 'backup') render();
-}
-function renderCloud() {
-  const c = $('#cloud'); if (!c) return;
-  const t = { off: '☁️ Backup off', saving: '☁️ Salvando…', ok: '☁️ Salvo ' + (cfg.lastAt ? new Date(cfg.lastAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''), pending: '☁️ Pendente', needlogin: '☁️ Reconectar' }[B.state];
-  c.textContent = t;
-}
-let tokenClient = null, token = '', tokenExp = 0, waiter = null;
-function initGoogle() {
-  if (tokenClient) return true;
-  if (!cfg.clientId || !(window.google && google.accounts && google.accounts.oauth2)) return false;
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: cfg.clientId, scope: SCOPE,
-    callback: r => {
-      const w = waiter; waiter = null;
-      if (r.error) { w && w.rej(Object.assign(new Error(r.error), { auth: true })); return; }
-      token = r.access_token; tokenExp = Date.now() + (r.expires_in || 3600) * 1000;
-      cfg.connected = true; saveCfg(); w && w.res(token);
-    },
-    error_callback: e => { const w = waiter; waiter = null; w && w.rej(Object.assign(new Error(e.type || 'popup'), { auth: true })); }
-  });
-  return true;
-}
-function getToken() {
-  if (token && Date.now() < tokenExp - 60000) return Promise.resolve(token);
-  if (!initGoogle()) return Promise.reject(Object.assign(new Error('Google indisponível'), { offline: true }));
-  return new Promise((res, rej) => { waiter = { res, rej }; tokenClient.requestAccessToken({ prompt: cfg.connected ? '' : 'consent' }); });
-}
-async function api(url, opt, t) {
-  const r = await fetch(url, { ...opt, headers: { Authorization: 'Bearer ' + t, ...((opt && opt.headers) || {}) } });
-  if (!r.ok) { const e = new Error('Drive ' + r.status); e.status = r.status; throw e; }
-  return r;
-}
-async function findFile(t) {
-  const r = await api(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id)&q=${encodeURIComponent(`name='${FN}'`)}`, {}, t);
-  return ((await r.json()).files || [])[0]?.id || '';
-}
-async function createFile(t, body) {
-  const b = 'vo' + uid(), meta = JSON.stringify({ name: FN, parents: ['appDataFolder'] });
-  const payload = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
-  const r = await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${b}` }, body: payload }, t);
-  return (await r.json()).id;
-}
-const updateFile = (t, id, body) => api(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,
-  { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body, keepalive: body.length < 60000 }, t);
-
-let bTimer, busy = false, again = false;
-function markDirty() {
-  cfg.dirty = true; saveCfg();
-  if (cfg.connected && cfg.auto) { clearTimeout(bTimer); bTimer = setTimeout(() => runBackup(), 2500); if (B.state !== 'needlogin') setB('pending'); }
-}
-async function runBackup() {
-  if (!cfg.clientId || !cfg.connected) return;
-  if (busy) { again = true; return; }
-  busy = true;
-  const ver = D.updatedAt;
-  try {
-    const p = getToken(); setB('saving');
-    const t = await p, body = JSON.stringify(D);
-    let id = cfg.fileId || await findFile(t);
-    if (id) { try { await updateFile(t, id, body); } catch (e) { if (e.status === 404) id = ''; else throw e; } }
-    if (!id) id = await createFile(t, body);
-    cfg.fileId = id; cfg.lastAt = Date.now();
-    if (D.updatedAt === ver) cfg.dirty = false; else again = true;
-    saveCfg(); setB('ok');
-  } catch (e) {
-    console.warn('backup', e);
-    if (e.status === 401) token = '';
-    if (e.auth || e.status === 401) setB('needlogin');
-    else setB('pending', navigator.onLine ? 'Não consegui salvar agora. Vou tentar de novo.' : 'Sem internet — o backup sai quando voltar a conexão.');
-  } finally {
-    busy = false;
-    if (again) { again = false; clearTimeout(bTimer); bTimer = setTimeout(runBackup, 1500); }
-  }
-}
-async function pullRemote() {
-  const t = await getToken();
-  const id = cfg.fileId || await findFile(t);
-  if (!id) return null;
-  cfg.fileId = id; saveCfg();
-  const r = await api(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {}, t);
-  return r.json();
-}
-function applyRemote(data) { D = merge(DEF(), data); localStorage.setItem(KEY, JSON.stringify(D)); cfg.dirty = false; saveCfg(); P.left = null; render(); }
-async function syncCheck() {
-  if (!cfg.connected || busy) return;
-  try {
-    const rem = await pullRemote();
-    if (!rem) { if (D.updatedAt) runBackup(); else setB('ok'); return; }
-    if ((rem.updatedAt || 0) > D.updatedAt) {
-      if (!cfg.dirty) { applyRemote(rem); toast('Dados atualizados com o Drive'); setB('ok'); }
-      else if (confirm('Há um backup mais recente no Google Drive (de outro aparelho). Restaurar e descartar as alterações locais ainda não salvas?')) { applyRemote(rem); setB('ok'); }
-      else runBackup();
-    } else if (cfg.dirty) runBackup(); else setB('ok');
-  } catch (e) { if (e.auth) setB('needlogin'); }
-}
 function download(name, text, type) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click();
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
-window.__gis = () => { if (cfg.connected) { initGoogle(); syncCheck(); } else if (view === 'backup') render(); };
 
 /* =====================  Ações (cliques)  ===================== */
 const A = {
@@ -568,7 +1235,7 @@ const A = {
   sclear: () => mutate(d => { d.shop = d.shop.filter(i => !i.done); }),
   adel: el => { if (confirm('Excluir compromisso?')) mutate(d => { d.agenda = d.agenda.filter(a => a.id !== el.dataset.id); }); },
   ics: el => {
-    const a = D.agenda.find(x => x.id === el.dataset.id); if (!a) return;
+    const a = (D.agenda || []).find(x => x.id === el.dataset.id); if (!a) return;
     const dt = a.date.replace(/-/g, ''), tm = (a.time || '').replace(':', '');
     const start = a.time ? `DTSTART:${dt}T${tm}00` : `DTSTART;VALUE=DATE:${dt}`;
     const endD = a.time ? `DTEND:${dt}T${pad(Math.min(23, +a.time.slice(0, 2) + 1))}${a.time.slice(3)}00` : `DTEND;VALUE=DATE:${addDays(a.date, 1).replace(/-/g, '')}`;
@@ -581,10 +1248,29 @@ const A = {
   pillpreset: el => mutate(d => { d.pill.active = +el.dataset.a; d.pill.pause = +el.dataset.p; }),
   newpack: () => mutate(d => { d.pill.start = today(); }),
   pilltake: () => mutate(d => { d.pill.taken[today()] = true; }),
-  notif: async () => {
-    if (!('Notification' in window)) return toast('Este navegador não suporta avisos.');
-    const r = await Notification.requestPermission(); toast(r === 'granted' ? 'Avisos ativados ✓' : 'Permissão negada.');
+  
+  // Notificações
+  reqnotif: async () => {
+    if (!('Notification' in window)) return toast('Este navegador não suporta notificações.');
+    const r = await Notification.requestPermission();
+    if (r === 'granted') {
+      notify('🔔 Notificações Ativadas!', 'Você receberá avisos sobre agenda, checklist, ciclo e hábitos.', 'init');
+      toast('Notificações ativadas com sucesso ✓');
+    } else {
+      toast('Permissão de notificação negada.');
+    }
+    openSettingsModal();
   },
+  testnotif: async () => {
+    if (!('Notification' in window)) return toast('Este navegador não suporta notificações.');
+    if (Notification.permission !== 'granted') {
+      const r = await Notification.requestPermission();
+      if (r !== 'granted') return toast('Permissão de notificação negada.');
+    }
+    notify('🔔 Notificação de Teste', 'Suas notificações de agenda, checklist, ciclo e hábitos estão ativas!', 'test_' + Date.now());
+    toast('Notificação de teste disparada ✓');
+  },
+
   pstart: () => {
     if (P.left == null) P.left = pTotal();
     if (P.running) { P.running = false; clearInterval(P.t); pTick(); document.title = 'Vida em Ordem'; }
@@ -593,102 +1279,288 @@ const A = {
   },
   pskip: () => { P.phase = P.phase === 'focus' ? 'rest' : 'focus'; P.left = pTotal(); if (P.running) P.end = Date.now() + P.left * 1000; updateClock(); },
   preset2: () => { P.running = false; clearInterval(P.t); P.phase = 'focus'; P.left = pTotal(); document.title = 'Vida em Ordem'; updateClock(); },
-  cloud: () => { if (cfg.connected && (B.state === 'needlogin' || B.state === 'pending')) runBackup(); else go('backup'); },
-  connect: async () => {
-    try { setB('saving', 'Aguardando login do Google…'); await getToken(); toast('Conectado ✓'); await syncCheck(); if (B.state !== 'ok') await runBackup(); }
-    catch (e) { setB('off', e.offline ? 'Não consegui carregar o login do Google. Verifique a internet.' : 'Login cancelado ou bloqueado. Tente de novo.'); }
-  },
-  backupnow: () => runBackup(),
-  restore: async () => {
-    if (!confirm('Substituir os dados deste aparelho pelo backup do Drive?')) return;
-    try { const rem = await pullRemote(); if (!rem) return toast('Nenhum backup encontrado no Drive.'); applyRemote(rem); setB('ok'); toast('Backup restaurado ✓'); }
-    catch (e) { toast('Não foi possível restaurar: ' + e.message); }
-  },
-  disconnect: () => {
-    if (!confirm('Desconectar do Google? Seus dados continuam no aparelho e no Drive.')) return;
-    try { token && google.accounts.oauth2.revoke(token); } catch { }
-    token = ''; cfg.connected = false; cfg.fileId = ''; saveCfg(); setB('off'); render();
-  },
   export: () => download(`vida-em-ordem-${today()}.json`, JSON.stringify(D, null, 1), 'application/json'),
-  install: async () => { if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; $('#install').hidden = true; } }
+  
+  // Instalação do App / APK
+  install: async () => {
+    if (deferred) {
+      deferred.prompt();
+      await deferred.userChoice;
+      deferred = null;
+      $('#install').hidden = true;
+    } else {
+      showApkGuideModal();
+    }
+  },
+  installFromSettings: async () => {
+    if (deferred) {
+      closeModal();
+      deferred.prompt();
+      await deferred.userChoice;
+      deferred = null;
+      $('#install').hidden = true;
+    } else {
+      showApkGuideModal();
+    }
+  },
+  openapkguide: () => {
+    userMenuOpen = false;
+    const dropdown = $('#userDropdown');
+    if (dropdown) dropdown.hidden = true;
+    showApkGuideModal();
+  },
+
+  // Ações da Checklist
+  checkfilter: el => { checkF = el.dataset.v; render(); },
+  clearchecksearch: () => {
+    checkSearch = '';
+    render();
+    const inp = $('#checklistSearchInput');
+    if (inp) inp.focus();
+  },
+  checkedit: el => { editingChecklistId = el.dataset.id; render(); },
+  canceledit: () => { editingChecklistId = null; render(); },
+  checkdel: el => {
+    if (confirm('Excluir este item da checklist?')) {
+      mutate(d => { d.checklist = (d.checklist || []).filter(c => c.id !== el.dataset.id); });
+    }
+  },
+  checkclear: () => {
+    if (confirm('Remover todas as tarefas concluídas?')) {
+      mutate(d => { d.checklist = (d.checklist || []).filter(c => !c.done); });
+    }
+  },
+
+  // Ações de Usuário e Configurações
+  toggleUserMenu: () => {
+    userMenuOpen = !userMenuOpen;
+    const dropdown = $('#userDropdown');
+    if (dropdown) dropdown.hidden = !userMenuOpen;
+  },
+  login: async () => {
+    if (!window.firebaseBridge) return toast('Firebase não disponível.');
+    try {
+      await window.firebaseBridge.loginWithGoogle();
+      closeModal();
+      userMenuOpen = false;
+      const dropdown = $('#userDropdown');
+      if (dropdown) dropdown.hidden = true;
+    } catch (e) {
+      toast('Login cancelado ou bloqueado.');
+    }
+  },
+  logout: async () => {
+    if (!confirm('Deseja sair da sua conta Google? Seus dados continuam salvos na nuvem e no aparelho.')) return;
+    try {
+      await window.firebaseBridge.logout();
+      currentUser = null;
+      userMenuOpen = false;
+      const dropdown = $('#userDropdown');
+      if (dropdown) dropdown.hidden = true;
+      updateAccountUI();
+      render();
+      toast('Desconectado com sucesso.');
+    } catch (e) {
+      toast('Erro ao sair.');
+    }
+  },
+  openSettings: () => { openSettingsModal(); },
+  closeModal: () => { closeModal(); },
+  backdropClose: () => { closeModal(); },
+  dismissWelcome: () => {
+    localStorage.setItem('vo_welcome_dismissed', '1');
+    closeModal();
+  },
+  forcesync: () => { forceCloudSync(); },
+  pickPalette: el => {
+    const c = el.dataset.c;
+    applyTheme(c, true);
+    openSettingsModal();
+  },
+  pickFont: el => {
+    const f = el.dataset.f;
+    applyFont(f, true);
+    openSettingsModal();
+  },
+  resetAppearance: () => {
+    applyTheme('#8e4585', true);
+    applyFont('system-ui', true);
+    openSettingsModal();
+    toast('Aparência padrão restaurada ✓');
+  }
 };
 
+/* =====================  Mudanças (Inputs/Selects)  ===================== */
 const C = {
   setdate: el => { if (el.value) { sel = el.value; render(); } },
   rtoggle: el => mutate(d => {
-    const log = d.rlog[el.dataset.k], a = log[sel] || (log[sel] = []);
+    const log = d.rlog[el.dataset.k] || (d.rlog[el.dataset.k] = {}), a = log[sel] || (log[sel] = []);
     const i = a.indexOf(el.dataset.id); if (i >= 0) a.splice(i, 1); else a.push(el.dataset.id);
   }),
-  stoggle: el => mutate(d => { const i = d.shop.find(x => x.id === el.dataset.id); if (i) i.done = el.checked; }),
+  stoggle: el => mutate(d => { const i = (d.shop || []).find(x => x.id === el.dataset.id); if (i) i.done = el.checked; }),
+  checktoggle: el => mutate(d => {
+    const i = (d.checklist || []).find(x => x.id === el.dataset.id);
+    if (i) i.done = el.checked;
+  }),
   pilltaken: el => mutate(d => { d.pill.taken[today()] = el.checked; }),
+  notiftoggle: el => mutate(d => {
+    if (!d.notifSettings) d.notifSettings = { agenda: true, checklist: true, ciclo: true, habitos: true };
+    d.notifSettings[el.dataset.k] = el.checked;
+  }, { render: false }),
   set: el => {
     const t = el.dataset.type; let v = el.value;
     if (t === 'num') { v = Number(v); if (!isFinite(v) || (el.min !== '' && v < +el.min)) return render(); }
     if (t === 'bool') v = el.checked;
     mutate(d => setPath(d, el.dataset.path, v));
-    if (el.dataset.path.startsWith('study.')) { if (!P.running) P.left = null; }
+    if (el.dataset.path && el.dataset.path.startsWith('study.')) { if (!P.running) P.left = null; }
   },
-  autobk: el => { cfg.auto = el.checked; saveCfg(); if (cfg.auto && cfg.dirty) runBackup(); },
   import: el => {
     const f = el.files[0]; if (!f) return;
     const r = new FileReader();
     r.onload = () => {
-      try { const d = JSON.parse(r.result); if (!isObj(d)) throw 0; if (!confirm('Substituir os dados atuais pelo arquivo?')) return; D = merge(DEF(), d); save(); render(); toast('Importado ✓'); }
-      catch { toast('Arquivo inválido.'); }
+      try {
+        const d = JSON.parse(r.result);
+        if (!isObj(d)) throw 0;
+        if (!confirm('Substituir os dados atuais pelo arquivo importado?')) return;
+        D = merge(DEF(), d);
+        save();
+        initAppearance();
+        render();
+        toast('Backup importado ✓');
+      } catch {
+        toast('Arquivo inválido.');
+      }
     };
     r.readAsText(f);
   }
 };
 
+/* =====================  Submissões de Formulários  ===================== */
 const S = {
+  addChecklist: fd => {
+    const text = (fd.get('text') || '').trim();
+    if (!text) return;
+    const date = fd.get('date') || today();
+    const time = (fd.get('time') || '').trim();
+    mutate(d => {
+      if (!d.checklist) d.checklist = [];
+      d.checklist.push({
+        id: uid(),
+        text,
+        date,
+        time,
+        done: false,
+        createdAt: Date.now()
+      });
+    });
+    toast('Item adicionado à checklist ✓');
+  },
+  saveCheckEdit: (fd, f) => {
+    const id = f.dataset.id;
+    const text = (fd.get('text') || '').trim();
+    if (!text) return;
+    const date = fd.get('date') || today();
+    const time = (fd.get('time') || '').trim();
+    mutate(d => {
+      const item = (d.checklist || []).find(c => c.id === id);
+      if (item) {
+        item.text = text;
+        item.date = date;
+        item.time = time;
+      }
+    });
+    editingChecklistId = null;
+    render();
+    toast('Tarefa alterada ✓');
+  },
   addRoutine: (fd, f) => {
-    const days = fd.getAll('d').map(Number), name = fd.get('name').trim(); if (!name) return;
+    const days = fd.getAll('d').map(Number), name = (fd.get('name') || '').trim(); if (!name) return;
     mutate(d => d.routines[f.dataset.k].push({ id: uid(), name, reps: (fd.get('reps') || '').trim(), days: days.length ? days : [0, 1, 2, 3, 4, 5, 6] }));
   },
   addMin: fd => mutate(d => { d.study.log[sel] = (d.study.log[sel] || 0) + Math.round(+fd.get('min')); }),
-  addFood: fd => mutate(d => d.food.push({ id: uid(), date: sel, time: fd.get('time') || nowHM(), type: fd.get('type'), text: fd.get('text').trim() })),
-  addShop: fd => mutate(d => d.shop.push({ id: uid(), name: fd.get('name').trim(), kind: fd.get('kind'), price: +fd.get('price') || 0, done: false })),
-  addAgenda: fd => mutate(d => d.agenda.push({ id: uid(), title: fd.get('title').trim(), date: fd.get('date'), time: fd.get('time') || '', notes: (fd.get('notes') || '').trim() })),
+  addFood: fd => mutate(d => d.food.push({ id: uid(), date: sel, time: fd.get('time') || nowHM(), type: fd.get('type'), text: (fd.get('text') || '').trim() })),
+  addShop: fd => mutate(d => d.shop.push({ id: uid(), name: (fd.get('name') || '').trim(), kind: fd.get('kind'), price: +fd.get('price') || 0, done: false })),
+  addAgenda: fd => mutate(d => d.agenda.push({ id: uid(), title: (fd.get('title') || '').trim(), date: fd.get('date'), time: fd.get('time') || '', notes: (fd.get('notes') || '').trim() })),
   addPeriod: fd => {
     const start = fd.get('start'), end = fd.get('end') || '';
     if (end && end < start) return toast('O último dia não pode ser antes do primeiro.');
     mutate(d => { d.cycle.periods = d.cycle.periods.filter(p => p.start !== start); d.cycle.periods.push(end ? { start, end } : { start }); });
     calM = parse(start);
-  },
-  saveClient: fd => { cfg.clientId = fd.get('cid').trim(); cfg.connected = false; cfg.fileId = ''; tokenClient = null; token = ''; saveCfg(); setB('off'); render(); toast('ID salvo. Agora toque em “Entrar com Google”.'); }
+  }
 };
 
+/* =====================  Event Listeners Globais  ===================== */
 let jT;
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
-  if (B.state === 'needlogin' && cfg.connected && !busy) runBackup(); // o toque é o "gesto" que o navegador exige p/ renovar o login
-  if (el && A[el.dataset.act]) A[el.dataset.act](el, e);
+  if (el && A[el.dataset.act]) {
+    A[el.dataset.act](el, e);
+    return;
+  }
+  // Fecha dropdown do usuário ao clicar fora
+  if (userMenuOpen && !e.target.closest('.user-menu-wrap')) {
+    userMenuOpen = false;
+    const dropdown = $('#userDropdown');
+    if (dropdown) dropdown.hidden = true;
+  }
 });
-document.addEventListener('change', e => { const el = e.target.closest('[data-chg]'); if (el && C[el.dataset.chg]) C[el.dataset.chg](el, e); });
+
+document.addEventListener('change', e => {
+  const el = e.target.closest('[data-chg]');
+  if (el && C[el.dataset.chg]) C[el.dataset.chg](el, e);
+});
+
 document.addEventListener('submit', e => {
-  const f = e.target.closest('[data-submit]'); if (!f) return;
-  e.preventDefault(); S[f.dataset.submit](new FormData(f), f);
+  const f = e.target.closest('[data-submit]');
+  if (!f) return;
+  e.preventDefault();
+  if (S[f.dataset.submit]) S[f.dataset.submit](new FormData(f), f);
 });
+
 document.addEventListener('input', e => {
-  const el = e.target.closest('[data-inp]'); if (!el) return;
+  const el = e.target.closest('[data-inp]');
+  if (!el) return;
+
+  // Pesquisa na checklist em tempo real com preservação de foco
+  if (el.dataset.inp === 'checksearch') {
+    checkSearch = el.value;
+    render();
+    const inp = $('#checklistSearchInput');
+    if (inp) {
+      inp.focus();
+      inp.selectionStart = inp.selectionEnd = inp.value.length;
+    }
+    return;
+  }
+
   clearTimeout(jT);
   const day = sel, field = el.dataset.inp, val = el.value;
   jT = setTimeout(() => mutate(d => { (d.journal[day] || (d.journal[day] = {}))[field] = val; }, { render: false }), 500);
 });
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { if (cfg.dirty && cfg.connected && token && Date.now() < tokenExp) { clearTimeout(bTimer); runBackup(); } }
-  else { reminderTick(); syncCheck(); }
+  if (document.visibilityState === 'visible') {
+    reminderTick();
+  }
 });
-addEventListener('online', () => { if (cfg.dirty) runBackup(); else syncCheck(); });
-addEventListener('beforeunload', () => { clearTimeout(jT); });
 
 let deferred = null;
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; $('#install').hidden = false; });
-addEventListener('appinstalled', () => { $('#install').hidden = true; toast('App instalado ✓'); });
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferred = e;
+  $('#install').hidden = false;
+});
+addEventListener('appinstalled', () => {
+  $('#install').hidden = true;
+  toast('App instalado ✓');
+});
 
-/* =====================  Início  ===================== */
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
-if (cfg.clientId && cfg.connected) setB(cfg.dirty ? 'pending' : 'ok', cfg.dirty ? 'Alterações aguardando backup…' : 'Conectado ao Drive'); else setB('off');
+/* =====================  Inicialização  ===================== */
+initAppearance();
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => { });
+}
 render();
-setInterval(reminderTick, 30000); reminderTick();
-if (window.google && google.accounts) window.__gis();
+setInterval(reminderTick, 30000);
+reminderTick();
+initFirebaseAuth();

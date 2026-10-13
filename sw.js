@@ -1,5 +1,5 @@
-const CACHE = 'vida-em-ordem-v1';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'config.js', 'manifest.webmanifest',
+const CACHE = 'vida-em-ordem-v2';
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'firebase-bundle.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'];
 
 self.addEventListener('install', e => {

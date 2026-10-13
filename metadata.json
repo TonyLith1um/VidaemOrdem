@@ -1,0 +1,6 @@
+{
+  "name": "Vida em Ordem",
+  "description": "Organize todos os setores da vida: ciclo, hábitos, estudos, treino, alimentação, compras, agenda e diário.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
