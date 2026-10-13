@@ -153,9 +153,21 @@ function applyFont(key, persist = true) {
   }
 }
 
+function applyCustomIcon(dataUrl) {
+  const iconUrl = dataUrl || 'icons/icon-192.png';
+  const linkIcon = $('link[rel="icon"]');
+  if (linkIcon) linkIcon.href = iconUrl;
+  const linkApple = $('link[rel="apple-touch-icon"]');
+  if (linkApple) linkApple.href = iconUrl;
+  const linkFav = $('link[rel="shortcut icon"]');
+  if (linkFav) linkFav.href = iconUrl;
+}
+
 function initAppearance() {
   applyTheme(D.themeColor || '#8e4585', false);
   applyFont(D.fontFamily || 'system-ui', false);
+  const customIcon = localStorage.getItem('vo_custom_icon');
+  if (customIcon) applyCustomIcon(customIcon);
 }
 
 /* =====================  Estado de tela  ===================== */
@@ -637,8 +649,9 @@ function updateAccountUI() {
         </div>
         <div class="user-dropdown-actions">
           <button type="button" class="pri" data-act="login" style="background:var(--accent);color:#fff">🔑 Entrar com Google</button>
-          <button type="button" data-act="openapkguide">📱 Instalar App / Gerar APK</button>
           <button type="button" data-act="openSettings">⚙️ Configurações (Tema, Fontes, Avisos)</button>
+          <button type="button" data-act="openapkguide">📱 Instalar App / Gerar APK</button>
+          <button type="button" class="ghost" data-act="openOAuthHelp" style="font-size:.78rem;color:var(--muted);text-align:center">❓ Ajuda: Erro de Login no GitHub Pages</button>
         </div>`;
     }
   }
@@ -885,10 +898,10 @@ function openSettingsModal() {
           <p class="note" style="margin-top:0;margin-bottom:.6rem">Selecione o estilo de tipografia preferido:</p>
           <div class="font-list">
             ${Object.entries(FONTS).map(([k, f]) => `
-              <div class="font-option ${curFont === k ? 'on' : ''}" data-act="pickFont" data-f="${k}" style="font-family:${f.stack}">
+              <button type="button" class="font-option ${curFont === k ? 'on' : ''}" data-act="pickFont" data-f="${k}" style="font-family:${f.stack}">
                 <span>${f.name}</span>
-                <span>${curFont === k ? '✓' : ''}</span>
-              </div>
+                <span class="check-mark">${curFont === k ? '✓' : ''}</span>
+              </button>
             `).join('')}
           </div>
           <div class="font-preview-quote" id="fontPreviewBox">
@@ -896,7 +909,26 @@ function openSettingsModal() {
           </div>
         </section>
 
-        <div class="row" style="justify-content:flex-end">
+        <!-- 5. ÍCONE DO APLICATIVO / SITE -->
+        <section style="margin-bottom:1.4rem">
+          <h3 style="font-size:1rem;margin-bottom:.4rem">🖼️ Ícone do Aplicativo / Site</h3>
+          <p class="note" style="margin-top:0;margin-bottom:.6rem">Você pode utilizar uma foto ou imagem personalizada do seu celular/computador como ícone do app:</p>
+          <div style="display:flex;align-items:center;gap:1rem;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:.8rem">
+            <img id="settingsAppIconPreview" src="${localStorage.getItem('vo_custom_icon') || 'icons/icon-192.png'}" alt="Ícone Atual" style="width:56px;height:56px;border-radius:14px;box-shadow:0 3px 8px rgba(0,0,0,.15);object-fit:cover">
+            <div style="flex:1">
+              <label class="pri sm" style="display:inline-block;cursor:pointer;padding:.4rem .9rem;border-radius:8px;font-size:.85rem;font-weight:600">
+                📁 Escolher imagem do aparelho
+                <input type="file" id="customIconFileInput" accept="image/*" style="display:none" data-chg="uploadCustomIcon">
+              </label>
+              ${localStorage.getItem('vo_custom_icon') ? `
+                <button type="button" class="ghost sm" data-act="resetCustomIcon" style="margin-left:.4rem;font-size:.8rem">Restaurar Original</button>
+              ` : ''}
+              <small class="muted" style="display:block;margin-top:.3rem">PNG, JPG ou WebP. Substitui o ícone na tela inicial e favoritos.</small>
+            </div>
+          </div>
+        </section>
+
+        <div class="row" style="justify-content:flex-end;gap:.6rem">
           <button type="button" class="ghost sm" data-act="resetAppearance">Restaurar Padrões</button>
           <button type="button" class="pri sm" data-act="closeModal">Concluir</button>
         </div>
@@ -1897,9 +1929,11 @@ views.checklist = () => {
         }).join('') || `<li class="empty">${checkSearch ? 'Nenhum resultado encontrado para "' + esc(checkSearch) + '".' : 'Nenhuma tarefa nesta visualização.'}</li>`}
       </ul>
 
-      ${items.some(i => i.done) ? `
-        <div style="margin-top:.8rem">
-          <button type="button" class="ghost sm" data-act="checkclear">Limpar concluídas</button>
+      ${(D.checklist || []).some(i => i.done) ? `
+        <div style="margin-top:.8rem;display:flex;justify-content:flex-end">
+          <button type="button" class="ghost sm" data-act="checkclear" style="color:var(--warn);border-color:var(--line)">
+            🧹 Limpar concluídas (${(D.checklist || []).filter(i => i.done).length})
+          </button>
         </div>
       ` : ''}
     </section>
@@ -2504,11 +2538,37 @@ const A = {
     const preview = $('#fontPreviewBox');
     if (preview) preview.style.fontFamily = FONTS['system-ui'].stack;
     toast('Aparência padrão restaurada ✓');
+  },
+  resetCustomIcon: () => {
+    localStorage.removeItem('vo_custom_icon');
+    applyCustomIcon(null);
+    openSettingsModal();
+    toast('Ícone original restaurado ✓');
   }
 };
 
 /* =====================  Mudanças (Inputs/Selects)  ===================== */
 const C = {
+  uploadCustomIcon: el => {
+    const file = el.files && el.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return toast('Selecione um arquivo de imagem.');
+    const reader = new FileReader();
+    reader.onload = e => {
+      const dataUrl = e.target.result;
+      try {
+        localStorage.setItem('vo_custom_icon', dataUrl);
+        applyCustomIcon(dataUrl);
+        const prev = $('#settingsAppIconPreview');
+        if (prev) prev.src = dataUrl;
+        toast('Ícone do aplicativo atualizado com sucesso ✓');
+        openSettingsModal();
+      } catch (err) {
+        toast('Imagem muito grande para armazenamento local. Tente redimensionar a imagem.');
+      }
+    };
+    reader.readAsDataURL(file);
+  },
   setdate: el => { if (el.value) { sel = el.value; render(); } },
   rtoggle: el => mutate(d => {
     const log = d.rlog[el.dataset.k] || (d.rlog[el.dataset.k] = {}), a = log[sel] || (log[sel] = []);
