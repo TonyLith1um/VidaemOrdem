@@ -216,6 +216,75 @@ code{background:var(--accent-soft);padding:.05rem .35rem;border-radius:6px;font-
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes scaleUp{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}
 
+/* =====================  Controle de Gastos Mensais  ===================== */
+.finance-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.8rem;margin-bottom:.8rem}
+.month-selector-bar{display:flex;align-items:center;gap:.5rem;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:.35rem .6rem;flex-wrap:wrap}
+.month-selector-bar select{border:0;background:none;font-weight:700;font-size:1rem;color:var(--ink);cursor:pointer;outline:none;padding:.2rem}
+.finance-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:.6rem;margin-bottom:1rem}
+.stat-kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:.8rem .9rem;position:relative;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.stat-kpi.total{border-left:4px solid var(--accent)}
+.stat-kpi.paid{border-left:4px solid #2e7d32;background:rgba(46,125,50,.03)}
+.stat-kpi.pending{border-left:4px solid #ef6c00;background:rgba(239,108,0,.03)}
+.stat-kpi.overdue{border-left:4px solid #c62828;background:rgba(198,40,40,.04)}
+.stat-kpi-head{display:flex;align-items:center;justify-content:space-between;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.stat-kpi-val{font-size:1.18rem;font-weight:700;margin:.3rem 0 .15rem;color:var(--ink);word-break:break-all}
+.stat-kpi-sub{font-size:.75rem;color:var(--muted)}
+.stat-kpi.paid .stat-kpi-val{color:#2e7d32}
+.stat-kpi.pending .stat-kpi-val{color:#ef6c00}
+.stat-kpi.overdue .stat-kpi-val{color:#c62828}
+
+.finance-progress-wrap{background:var(--bg);border-radius:10px;padding:.6rem .8rem;margin-bottom:1rem;border:1px solid var(--line)}
+.finance-progress-wrap .bar{height:8px;background:rgba(0,0,0,.08);border-radius:4px;overflow:hidden;margin:.4rem 0 .2rem}
+.finance-progress-wrap .bar i{display:block;height:100%;background:linear-gradient(90deg,#2e7d32,#66bb6a);transition:width .3s}
+
+.category-distrib{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem}
+.cat-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.2rem .6rem;border-radius:12px;font-size:.75rem;background:var(--card);border:1px solid var(--line)}
+.cat-pill i{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+.expense-toolbar{display:flex;flex-direction:column;gap:.6rem;margin-bottom:.8rem}
+.expense-tools-row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.expense-tools-row select{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:.35rem .6rem;font-size:.85rem;color:var(--ink)}
+
+.expense-item{display:flex;align-items:center;gap:.75rem;padding:.8rem .6rem;border-bottom:1px solid var(--line);transition:background-color .15s}
+.expense-item:hover{background:rgba(0,0,0,.015)}
+.expense-item:last-child{border-bottom:0}
+.expense-icon-circle{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;flex:0 0 auto;color:#fff}
+.expense-main{flex:1;min-width:0}
+.expense-name-row{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.expense-name{font-weight:600;font-size:.95rem;color:var(--ink)}
+.expense-badges{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-top:.25rem}
+.badge-recurrent{background:var(--accent-soft);color:var(--accent);font-size:.7rem;padding:.15rem .45rem;border-radius:6px;font-weight:600}
+.badge-installment{background:#ede7f6;color:#5e35b1;font-size:.7rem;padding:.15rem .45rem;border-radius:6px;font-weight:600}
+.expense-meta{display:flex;gap:.6rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);margin-top:.25rem}
+.expense-meta span{display:inline-flex;align-items:center;gap:.25rem}
+
+.expense-right{display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;flex:0 0 auto}
+.expense-amount{font-size:1.02rem;font-weight:700;color:var(--ink)}
+.expense-status-tag{font-size:.72rem;font-weight:600;padding:.2rem .55rem;border-radius:12px;text-transform:uppercase;letter-spacing:.3px}
+.expense-status-tag.pago{background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9}
+.expense-status-tag.pendente{background:#fff3e0;color:#ef6c00;border:1px solid #ffe0b2}
+.expense-status-tag.vencido{background:#ffebee;color:#c62828;border:1px solid #ffcdd2}
+
+.expense-actions{display:flex;align-items:center;gap:.25rem;margin-top:.2rem}
+.expense-actions button{padding:.25rem .5rem}
+.btn-toggle-paid{background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;font-size:.8rem;font-weight:600;border-radius:8px;cursor:pointer;padding:.3rem .6rem}
+.btn-toggle-paid:hover{background:#c8e6c9}
+.btn-toggle-paid.is-paid{background:#f1f8e9;color:#33691e;border-color:#dcedc8}
+
+.category-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.6rem;margin-top:.8rem}
+.category-card{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:.7rem .8rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.category-card-info{display:flex;align-items:center;gap:.6rem}
+.cat-badge-circle{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.1rem}
+
+.emoji-selector{display:flex;flex-wrap:wrap;gap:.4rem;max-height:140px;overflow-y:auto;background:var(--bg);padding:.5rem;border-radius:10px;border:1px solid var(--line)}
+.emoji-btn{width:34px;height:34px;border:1px solid transparent;background:var(--card);border-radius:8px;font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.emoji-btn:hover,.emoji-btn.on{border-color:var(--accent);background:var(--accent-soft)}
+
+@media (min-width:600px){
+  .finance-stats{grid-template-columns:repeat(4,1fr)}
+  .expense-tools-row{flex-direction:row}
+}
+
 @media (min-width:900px){
   body{padding-bottom:0;padding-left:190px}
   #nav{top:0;bottom:auto;right:auto;width:190px;height:100vh;flex-direction:column;border-top:0;border-right:1px solid var(--line);padding-top:3.6rem}
@@ -225,3 +294,4 @@ code{background:var(--accent-soft);padding:.05rem .35rem;border-radius:6px;font-
   #toast{bottom:24px}
   .grid{grid-template-columns:repeat(3,1fr)}
 }
+

@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Vida em Ordem",
   "short_name": "VidaEmOrdem",
-  "description": "Organize todos os setores da vida: checklist, ciclo, hábitos, estudos, treino, alimentação, compras, agenda e diário.",
+  "description": "Organize todos os setores da vida: checklist, controle de gastos, ciclo, hábitos, estudos, treino, alimentação, compras, agenda e diário.",
   "lang": "pt-BR",
   "start_url": "/",
   "scope": "/",

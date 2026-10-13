@@ -72,6 +72,10 @@
         "checklist": {
           "type": "array",
           "description": "User customizable checklist items"
+        },
+        "finances": {
+          "type": "object",
+          "description": "Monthly expenses, custom categories, payment tracking and financial records"
         }
       },
       "required": ["userId"]

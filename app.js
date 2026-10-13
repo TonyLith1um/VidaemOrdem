@@ -32,7 +32,21 @@ const DEF = () => ({
   rlog: { habits: {}, exercises: {}, diet: {} },
   study: { goal: 120, focus: 25, rest: 5, log: {} },
   water: { goal: 8, log: {} },
-  food: [], shop: [], agenda: [], journal: {}
+  food: [], shop: [], agenda: [], journal: {},
+  finances: {
+    months: [],
+    categories: [
+      { id: 'moradia', name: 'Moradia', icon: '🏠', color: '#3f51b5' },
+      { id: 'alimentacao', name: 'Alimentação', icon: '🛒', color: '#ff9800' },
+      { id: 'saude', name: 'Saúde', icon: '💊', color: '#e91e63' },
+      { id: 'transporte', name: 'Transporte', icon: '🚗', color: '#009688' },
+      { id: 'cartoes', name: 'Cartões', icon: '💳', color: '#9c27b0' },
+      { id: 'emprestimos', name: 'Empréstimos', icon: '🏦', color: '#795548' },
+      { id: 'assinaturas', name: 'Assinaturas', icon: '📺', color: '#03a9f4' },
+      { id: 'outros', name: 'Outras despesas', icon: '📦', color: '#607d8b' }
+    ],
+    activeMonthId: ''
+  }
 });
 
 function merge(def, obj) {
@@ -150,9 +164,17 @@ let checkF = 'todas'; // 'todas', 'pendentes', 'concluidas', 'hoje'
 let checkSearch = '';
 let editingChecklistId = null;
 
+// Estado de Controle Financeiro
+let financeSearch = '';
+let financeStatusFilter = 'todas'; // 'todas', 'pendentes', 'vencidos', 'pagos'
+let financeCategoryFilter = 'todas';
+let financeSort = 'vencimento'; // 'vencimento', 'maior_valor', 'menor_valor', 'nome'
+let financeShowArchived = false;
+
 const NAV = [
   ['hoje', '🏠', 'Hoje'],
   ['checklist', '📝', 'Checklist'],
+  ['gastos', '💰', 'Gastos'],
   ['ciclo', '🌸', 'Ciclo'],
   ['habitos', '✅', 'Hábitos'],
   ['estudos', '📚', 'Estudos'],
@@ -163,6 +185,134 @@ const NAV = [
   ['diario', '📓', 'Diário'],
   ['backup', '☁️', 'Nuvem']
 ];
+
+/* =====================  Finanças Helpers  ===================== */
+const MONTH_NAMES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+];
+
+function formatMonthName(mId) {
+  if (!mId) return '';
+  const [y, m] = mId.split('-').map(Number);
+  if (!y || !m || m < 1 || m > 12) return mId;
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
+
+function initFinances() {
+  if (!D.finances) {
+    D.finances = {
+      months: [],
+      categories: [
+        { id: 'moradia', name: 'Moradia', icon: '🏠', color: '#3f51b5' },
+        { id: 'alimentacao', name: 'Alimentação', icon: '🛒', color: '#ff9800' },
+        { id: 'saude', name: 'Saúde', icon: '💊', color: '#e91e63' },
+        { id: 'transporte', name: 'Transporte', icon: '🚗', color: '#009688' },
+        { id: 'cartoes', name: 'Cartões', icon: '💳', color: '#9c27b0' },
+        { id: 'emprestimos', name: 'Empréstimos', icon: '🏦', color: '#795548' },
+        { id: 'assinaturas', name: 'Assinaturas', icon: '📺', color: '#03a9f4' },
+        { id: 'outros', name: 'Outras despesas', icon: '📦', color: '#607d8b' }
+      ],
+      activeMonthId: ''
+    };
+  }
+  if (!Array.isArray(D.finances.months)) D.finances.months = [];
+  if (!Array.isArray(D.finances.categories) || D.finances.categories.length === 0) {
+    D.finances.categories = [
+      { id: 'moradia', name: 'Moradia', icon: '🏠', color: '#3f51b5' },
+      { id: 'alimentacao', name: 'Alimentação', icon: '🛒', color: '#ff9800' },
+      { id: 'saude', name: 'Saúde', icon: '💊', color: '#e91e63' },
+      { id: 'transporte', name: 'Transporte', icon: '🚗', color: '#009688' },
+      { id: 'cartoes', name: 'Cartões', icon: '💳', color: '#9c27b0' },
+      { id: 'emprestimos', name: 'Empréstimos', icon: '🏦', color: '#795548' },
+      { id: 'assinaturas', name: 'Assinaturas', icon: '📺', color: '#03a9f4' },
+      { id: 'outros', name: 'Outras despesas', icon: '📦', color: '#607d8b' }
+    ];
+  }
+
+  const curMId = today().slice(0, 7);
+  if (D.finances.months.length === 0) {
+    D.finances.months.push({
+      id: curMId,
+      name: formatMonthName(curMId),
+      archived: false,
+      createdAt: Date.now(),
+      expenses: []
+    });
+    D.finances.activeMonthId = curMId;
+    save();
+  } else if (!D.finances.activeMonthId || !D.finances.months.some(m => m.id === D.finances.activeMonthId)) {
+    const unarchived = D.finances.months.find(m => !m.archived);
+    D.finances.activeMonthId = unarchived ? unarchived.id : D.finances.months[0].id;
+  }
+}
+
+function getActiveMonth() {
+  initFinances();
+  let m = D.finances.months.find(x => x.id === D.finances.activeMonthId);
+  if (!m) {
+    m = D.finances.months.find(x => !x.archived) || D.finances.months[0];
+    if (m) D.finances.activeMonthId = m.id;
+  }
+  return m;
+}
+
+function getCategory(catId) {
+  initFinances();
+  return D.finances.categories.find(c => c.id === catId) || {
+    id: 'outros',
+    name: 'Outras despesas',
+    icon: '📦',
+    color: '#607d8b'
+  };
+}
+
+function calculateExpenseStatus(exp) {
+  if (exp.status === 'pago') return 'pago';
+  const t = today();
+  if (exp.dueDate && exp.dueDate < t) return 'vencido';
+  return 'pendente';
+}
+
+function getMonthSummary(month) {
+  const expenses = (month && month.expenses) || [];
+  let total = 0, totalPaid = 0, totalPending = 0, totalOverdue = 0;
+  let countPaid = 0, countPending = 0, countOverdue = 0;
+  const catTotals = {};
+
+  expenses.forEach(e => {
+    const amt = Number(e.amount) || 0;
+    const st = calculateExpenseStatus(e);
+    total += amt;
+    if (st === 'pago') {
+      totalPaid += amt;
+      countPaid++;
+    } else if (st === 'vencido') {
+      totalOverdue += amt;
+      countOverdue++;
+    } else {
+      totalPending += amt;
+      countPending++;
+    }
+    const catId = e.category || 'outros';
+    catTotals[catId] = (catTotals[catId] || 0) + amt;
+  });
+
+  const pctPaid = total > 0 ? Math.round((totalPaid / total) * 100) : 0;
+  return {
+    total,
+    totalPaid,
+    totalPending,
+    totalOverdue,
+    countTotal: expenses.length,
+    countPaid,
+    countPending,
+    countOverdue,
+    pctPaid,
+    catTotals
+  };
+}
+
 
 /* =====================  Rotinas (hábitos, treino, dieta)  ===================== */
 const RT = {
@@ -854,6 +1004,449 @@ function closeModal() {
   if (container) container.innerHTML = '';
 }
 
+/* =====================  Modais de Finanças  ===================== */
+function openExpenseModal(expenseId = null) {
+  initFinances();
+  const curMonth = getActiveMonth();
+  if (!curMonth) return toast('Crie ou selecione um mês primeiro.');
+  const categories = D.finances.categories || [];
+  const existing = expenseId ? (curMonth.expenses || []).find(e => e.id === expenseId) : null;
+  const isEdit = !!existing;
+
+  const defaultDueDate = curMonth.id ? `${curMonth.id}-10` : today();
+  const exp = existing || {
+    id: '',
+    name: '',
+    category: categories[0]?.id || 'outros',
+    amount: '',
+    dueDate: defaultDueDate,
+    paidDate: '',
+    status: 'pendente',
+    paymentMethod: 'Pix',
+    recurrent: false,
+    installments: '',
+    notes: '',
+    link: ''
+  };
+
+  const container = $('#modalContainer');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>${isEdit ? '✏️ Editar Despesa' : '➕ Nova Despesa'} (${esc(curMonth.name)})</h2>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <form data-submit="saveExpenseForm" data-id="${exp.id || ''}">
+          <div>
+            <label class="f">Nome da Despesa *</label>
+            <input type="text" name="name" value="${esc(exp.name)}" placeholder="Ex.: Aluguel, Supermercado, Luz, Internet…" required maxlength="120">
+          </div>
+
+          <div class="two" style="margin-top:.5rem">
+            <div>
+              <label class="f">Valor em Reais (R$) *</label>
+              <input type="number" name="amount" value="${exp.amount !== '' ? exp.amount : ''}" step="0.01" min="0.01" placeholder="Ex.: 150.00" required>
+            </div>
+            <div>
+              <label class="f">Categoria *</label>
+              <select name="category" required>
+                ${categories.map(c => `
+                  <option value="${c.id}" ${exp.category === c.id ? 'selected' : ''}>
+                    ${c.icon} ${esc(c.name)}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="two" style="margin-top:.5rem">
+            <div>
+              <label class="f">Data de Vencimento *</label>
+              <input type="date" name="dueDate" value="${exp.dueDate || defaultDueDate}" required>
+            </div>
+            <div>
+              <label class="f">Status *</label>
+              <select name="status" id="expenseStatusSelect">
+                <option value="pendente" ${exp.status === 'pendente' ? 'selected' : ''}>⏳ Pendente</option>
+                <option value="pago" ${exp.status === 'pago' ? 'selected' : ''}>✅ Pago</option>
+                <option value="vencido" ${exp.status === 'vencido' ? 'selected' : ''}>⚠️ Vencido</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="two" style="margin-top:.5rem">
+            <div>
+              <label class="f">Data do Pagamento (se pago)</label>
+              <input type="date" name="paidDate" value="${exp.paidDate || ''}">
+            </div>
+            <div>
+              <label class="f">Forma de Pagamento</label>
+              <select name="paymentMethod">
+                ${['Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Boleto Bancário', 'Débito Automático', 'Dinheiro', 'Transferência Bancária', 'Outro'].map(p => `
+                  <option value="${p}" ${exp.paymentMethod === p ? 'selected' : ''}>${p}</option>
+                `).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="two" style="margin-top:.5rem">
+            <div>
+              <label class="f">Parcelamento (opcional)</label>
+              <input type="text" name="installments" value="${esc(exp.installments || '')}" placeholder="Ex.: 2/10 ou Parcela 2 de 10" maxlength="40">
+            </div>
+            <div style="display:flex;align-items:center;padding-top:1.4rem">
+              <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-size:.9rem">
+                <input type="checkbox" name="recurrent" ${exp.recurrent ? 'checked' : ''}>
+                <span>🔁 <b>Despesa Recorrente</b> (mensal)</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="margin-top:.5rem">
+            <label class="f">Link ou Comprovante (opcional)</label>
+            <input type="url" name="link" value="${esc(exp.link || '')}" placeholder="https://exemplo.com/fatura-ou-comprovante" maxlength="500">
+          </div>
+
+          <div style="margin-top:.5rem">
+            <label class="f">Observações / Detalhes extras</label>
+            <textarea name="notes" placeholder="Ex.: Chave Pix, código de barras, desconto se pago até o dia 5…">${esc(exp.notes || '')}</textarea>
+          </div>
+
+          <div class="row" style="justify-content:flex-end;margin-top:1rem;gap:.5rem">
+            <button type="button" class="ghost sm" data-act="closeModal">Cancelar</button>
+            <button type="submit" class="pri sm">💾 Salvar Despesa</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function openNewMonthModal() {
+  const container = $('#modalContainer');
+  if (!container) return;
+
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const defaultMId = iso(nextMonth).slice(0, 7);
+  const defaultName = formatMonthName(defaultMId);
+
+  const prevMonth = getActiveMonth();
+  const recurrentCount = prevMonth ? (prevMonth.expenses || []).filter(e => e.recurrent).length : 0;
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>📅 Novo Mês de Gastos</h2>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <form data-submit="saveNewMonthForm">
+          <div>
+            <label class="f">Ano e Mês *</label>
+            <input type="month" name="monthId" id="newMonthIdInput" value="${defaultMId}" required>
+          </div>
+
+          <div style="margin-top:.6rem">
+            <label class="f">Nome de Exibição do Mês *</label>
+            <input type="text" name="name" id="newMonthNameInput" value="${esc(defaultName)}" required maxlength="40">
+          </div>
+
+          ${prevMonth && recurrentCount > 0 ? `
+            <div style="margin-top:.8rem;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:.75rem">
+              <label style="display:flex;align-items:flex-start;gap:.6rem;cursor:pointer">
+                <input type="checkbox" name="copyRecurrent" checked style="margin-top:.2rem">
+                <div>
+                  <b>Copiar ${recurrentCount} despesa(s) recorrente(s) de ${esc(prevMonth.name)}?</b>
+                  <p class="note" style="margin:.2rem 0 0">Copia aluguel, condomínio, internet, assinaturas e contas fixas para o novo mês já criadas como pendentes.</p>
+                </div>
+              </label>
+            </div>
+          ` : ''}
+
+          <div class="row" style="justify-content:flex-end;margin-top:1rem;gap:.5rem">
+            <button type="button" class="ghost sm" data-act="closeModal">Cancelar</button>
+            <button type="submit" class="pri sm">Criar Mês</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const mIdInp = $('#newMonthIdInput');
+  const nameInp = $('#newMonthNameInput');
+  if (mIdInp && nameInp) {
+    mIdInp.addEventListener('change', () => {
+      if (mIdInp.value) nameInp.value = formatMonthName(mIdInp.value);
+    });
+  }
+}
+
+function openManageMonthModal() {
+  const curMonth = getActiveMonth();
+  if (!curMonth) return toast('Nenhum mês ativo.');
+  const container = $('#modalContainer');
+  if (!container) return;
+
+  const totalExp = (curMonth.expenses || []).length;
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>⚙️ Gerenciar Mês: ${esc(curMonth.name)}</h2>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <form data-submit="saveEditMonthForm" data-id="${curMonth.id}">
+          <div>
+            <label class="f">Renomear Mês</label>
+            <input type="text" name="name" value="${esc(curMonth.name)}" required maxlength="40">
+          </div>
+
+          <div style="margin-top:.8rem;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:.75rem">
+            <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+              <input type="checkbox" name="archived" ${curMonth.archived ? 'checked' : ''}>
+              <div>
+                <b>Arquivar este mês</b>
+                <p class="note" style="margin:.15rem 0 0">Meses arquivados ficam guardados no histórico e não aparecem na lista de meses ativos.</p>
+              </div>
+            </label>
+          </div>
+
+          <div class="row" style="justify-content:space-between;margin-top:1.2rem;gap:.5rem;flex-wrap:wrap">
+            <button type="button" class="dng sm" data-act="delMonth" data-id="${curMonth.id}">
+              🗑️ Excluir Mês (${totalExp} despesas)
+            </button>
+            <div class="row" style="gap:.5rem">
+              <button type="button" class="ghost sm" data-act="closeModal">Cancelar</button>
+              <button type="submit" class="pri sm">Salvar Alterações</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function openCategoriesModal() {
+  initFinances();
+  const categories = D.finances.categories || [];
+  const curMonth = getActiveMonth();
+  const expenses = curMonth?.expenses || [];
+
+  const EMOJIS = ['🏠', '🛒', '💊', '🚗', '💳', '🏦', '📺', '📦', '🍽️', '🎓', '⚡', '💧', '📶', '🐾', '🎮', '👔', '✈️', '🎁', '🧹', '💼', '🏋️', '🏥', '🛠️', '👶', '📱'];
+
+  const container = $('#modalContainer');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>🏷️ Categorias Personalizadas</h2>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <p class="note" style="margin-top:0">Crie ou personalize suas categorias com cores e ícones exclusivos:</p>
+
+        <!-- Lista de categorias existentes -->
+        <div class="category-grid" style="max-height:220px;overflow-y:auto;padding:.2rem">
+          ${categories.map(c => {
+            const count = expenses.filter(e => e.category === c.id).length;
+            return `
+              <div class="category-card">
+                <div class="category-card-info">
+                  <div class="cat-badge-circle" style="background:${c.color}">${c.icon}</div>
+                  <div>
+                    <b style="font-size:.88rem;display:block">${esc(c.name)}</b>
+                    <small class="muted">${count} despesa(s)</small>
+                  </div>
+                </div>
+                ${c.id !== 'outros' ? `
+                  <button type="button" class="dng sm" data-act="delCategory" data-id="${c.id}" title="Excluir categoria">🗑</button>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Formulário para Adicionar Nova Categoria -->
+        <section style="margin-top:1.2rem;border-top:1px solid var(--line);padding-top:1rem">
+          <h3 style="font-size:1rem;margin-bottom:.6rem">➕ Adicionar Nova Categoria</h3>
+          <form data-submit="saveNewCategoryForm">
+            <div>
+              <label class="f">Nome da Categoria *</label>
+              <input type="text" name="name" placeholder="Ex.: Lazer, Educação, Pets, Assinaturas…" required maxlength="40">
+            </div>
+
+            <div class="two" style="margin-top:.5rem">
+              <div>
+                <label class="f">Cor da Categoria</label>
+                <input type="color" name="color" value="#8e4585" style="width:100%;height:38px;padding:2px;cursor:pointer;border-radius:8px">
+              </div>
+              <div>
+                <label class="f">Ícone Selecionado</label>
+                <input type="text" name="icon" id="catIconInput" value="🏷️" readonly style="font-size:1.2rem;text-align:center;cursor:pointer">
+              </div>
+            </div>
+
+            <div style="margin-top:.4rem">
+              <label class="f">Escolha um ícone:</label>
+              <div class="emoji-selector">
+                ${EMOJIS.map(em => `
+                  <button type="button" class="emoji-btn ${em === '🏷️' ? 'on' : ''}" data-act="pickEmoji" data-e="${em}">${em}</button>
+                `).join('')}
+              </div>
+            </div>
+
+            <div class="row" style="justify-content:flex-end;margin-top:.8rem;gap:.5rem">
+              <button type="button" class="ghost sm" data-act="closeModal">Fechar</button>
+              <button type="submit" class="pri sm">Criar Categoria</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function openCopyRecurrentModal() {
+  initFinances();
+  const curMonth = getActiveMonth();
+  if (!curMonth) return toast('Crie um mês primeiro.');
+  const otherMonths = (D.finances.months || []).filter(m => m.id !== curMonth.id);
+
+  if (otherMonths.length === 0) {
+    return toast('Não há outros meses cadastrados para copiar despesas.');
+  }
+
+  const container = $('#modalContainer');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>📋 Copiar Despesas Recorrentes</h2>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <p class="note" style="margin-top:0">
+          Copie todas as despesas marcadas como <b>recorrentes</b> de outro mês diretamente para <b>${esc(curMonth.name)}</b>. Elas serão adicionadas como pendentes.
+        </p>
+
+        <form data-submit="executeCopyRecurrentForm">
+          <div>
+            <label class="f">Copiar de qual mês de origem?</label>
+            <select name="sourceMonthId" required>
+              ${otherMonths.map(m => {
+                const recCount = (m.expenses || []).filter(e => e.recurrent).length;
+                return `<option value="${m.id}">${esc(m.name)} (${recCount} despesas recorrentes)</option>`;
+              }).join('')}
+            </select>
+          </div>
+
+          <div class="row" style="justify-content:flex-end;margin-top:1.2rem;gap:.5rem">
+            <button type="button" class="ghost sm" data-act="closeModal">Cancelar</button>
+            <button type="submit" class="pri sm">Copiar para ${esc(curMonth.name)}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function openOAuthHelpModal() {
+  const container = $('#modalContainer');
+  if (!container) return;
+  const curOrigin = window.location.origin;
+
+  container.innerHTML = `
+    <div class="modal-backdrop" data-act="backdropClose">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>🔑 Como resolver Erro 400: origin_mismatch</h2>
+          <button type="button" class="modal-close" data-act="closeModal" aria-label="Fechar">✕</button>
+        </div>
+
+        <div class="card alert" style="margin-bottom:.8rem;padding:.75rem">
+          <b>Por que o Erro 400: origin_mismatch acontece no GitHub Pages?</b>
+          <p class="note" style="margin:.25rem 0 0">
+            A política de segurança do Google exige que a URL exata (<code>${esc(curOrigin)}</code>) seja registrada como <b>Origem JavaScript autorizada</b> nas credenciais do Google Cloud Console e nos Domínios autorizados do Firebase.
+          </p>
+        </div>
+
+        <h4 style="margin:.6rem 0 .3rem;font-size:.95rem">Passo a Passo Rápido:</h4>
+        <ol class="apk-steps">
+          <li>Acesse o <b>Google Cloud Console</b>: <br>
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-weight:600">
+              console.cloud.google.com/apis/credentials
+            </a>
+          </li>
+          <li>Clique no seu <b>ID do cliente OAuth 2.0</b> (tipo Aplicativo da Web).</li>
+          <li>Na seção <b>Origens JavaScript autorizadas</b>, adicione: <br>
+            <code style="user-select:all;display:inline-block;margin:.2rem 0">${esc(curOrigin)}</code>
+          </li>
+          <li>Na seção <b>URIs de redirecionamento autorizados</b>, adicione: <br>
+            <code style="user-select:all;display:inline-block;margin:.2rem 0">https://gen-lang-client-0974806691.firebaseapp.com/__/auth/handler</code>
+          </li>
+          <li>No <b>Firebase Console</b> (console.firebase.google.com) > <i>Authentication</i> > <i>Settings</i> > <i>Domínios autorizados</i>: <br>
+            Adicione o domínio: <code style="user-select:all">${esc(window.location.hostname)}</code>
+          </li>
+          <li>Clique em <b>Salvar</b>. O login com Google passará a funcionar normalmente!</li>
+        </ol>
+
+        <h4 style="margin:.8rem 0 .3rem;font-size:.95rem">💡 Vale a pena migrar de hospedagem?</h4>
+        <p style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">
+          O <b>GitHub Pages</b> é excelente. Se preferir não configurar o Console, o <b>Firebase Hosting</b> configura domínios automaticamente e é 100% gratuito (comando <code>firebase deploy</code>).
+        </p>
+
+        <div class="row" style="justify-content:flex-end">
+          <button type="button" class="pri sm" data-act="closeModal">Entendi</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function exportFinanceCsv(monthId = null) {
+  const m = monthId ? (D.finances.months || []).find(x => x.id === monthId) : getActiveMonth();
+  if (!m) return toast('Nenhum mês para exportar.');
+  const expenses = m.expenses || [];
+  if (!expenses.length) return toast('Este mês não possui despesas cadastradas.');
+
+  const headers = ['Mês', 'Despesa', 'Categoria', 'Valor (R$)', 'Vencimento', 'Pagamento', 'Status', 'Forma de Pagamento', 'Recorrente', 'Parcela', 'Observações'];
+  const rows = expenses.map(e => {
+    const cat = getCategory(e.category);
+    const st = calculateExpenseStatus(e);
+    return [
+      m.name,
+      e.name,
+      cat.name,
+      (Number(e.amount) || 0).toFixed(2),
+      e.dueDate,
+      e.paidDate || '',
+      st,
+      e.paymentMethod || '',
+      e.recurrent ? 'Sim' : 'Não',
+      e.installments || '',
+      e.notes || ''
+    ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(';');
+  });
+
+  const csvContent = '\uFEFF' + [headers.map(h => `"${h}"`).join(';'), ...rows].join('\r\n');
+  const filename = `gastos-${m.id || 'mes'}.csv`;
+  download(filename, csvContent, 'text/csv;charset=utf-8;');
+  toast(`Relatório financeiro baixado ✓`);
+}
+
+
 /* =====================  Vistas da Aplicação  ===================== */
 const views = {};
 
@@ -875,6 +1468,9 @@ views.hoje = () => {
   const chDone = chList.filter(c => c.done).length;
   const chTotal = chList.length;
 
+  const curFinMonth = getActiveMonth();
+  const finSummary = getMonthSummary(curFinMonth);
+
   const stat = (go, icon, title, val, sub, pct) => `<button type="button" class="stat" data-act="go" data-v="${go}"><span>${icon}</span><b>${title}</b><em>${val}</em><small>${sub || ''}</small>${pct != null ? `<div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>` : ''}</button>`;
   const pct = (n, t2) => t2 ? Math.round(n / t2 * 100) : 0;
   const j = D.journal && D.journal[t];
@@ -887,6 +1483,7 @@ views.hoje = () => {
   
   <div class="grid">
     ${stat('checklist', '📝', 'Checklist', `${chDone}/${chTotal}`, 'concluídas', pct(chDone, chTotal))}
+    ${stat('gastos', '💰', 'Gastos do Mês', money(finSummary.total), `${finSummary.countPaid}/${finSummary.countTotal} pagas`, finSummary.pctPaid)}
     ${stat('habitos', '✅', 'Hábitos', `${h.n}/${h.total}`, '', pct(h.n, h.total))}
     ${stat('treino', '💪', 'Treino', `${e.n}/${e.total}`, '', pct(e.n, e.total))}
     ${stat('estudos', '📚', 'Estudos', `${min} min`, `meta ${D.study.goal} min`, pct(min, D.study.goal))}
@@ -897,6 +1494,18 @@ views.hoje = () => {
     ${stat('compras', '🛒', 'Compras', (D.shop || []).filter(i => !i.done).length, 'itens na lista')}
   </div>
   
+  ${finSummary.countOverdue > 0 ? `
+    <section class="card alert" style="border-left:4px solid #c62828;margin-top:.8rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem">
+        <div>
+          <b style="color:#c62828">⚠️ ${finSummary.countOverdue} conta(s) vencida(s) em ${esc(curFinMonth?.name || '')}!</b>
+          <div class="note" style="margin:.2rem 0 0">Total pendente em atraso: <b>${money(finSummary.totalOverdue)}</b>.</div>
+        </div>
+        <button type="button" class="pri sm" data-act="go" data-v="gastos" style="background:#c62828">Ver Gastos</button>
+      </div>
+    </section>
+  ` : ''}
+
   ${chToday.length ? `
     <section class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem">
@@ -913,6 +1522,270 @@ views.hoje = () => {
       `).join('')}</ul>
     </section>
   ` : ''}`;
+};
+
+// Vista: CONTROLE DE GASTOS MENSAIS
+views.gastos = () => {
+  initFinances();
+  const curMonth = getActiveMonth();
+  const summary = getMonthSummary(curMonth);
+  const categories = D.finances.categories || [];
+  const allMonths = [...(D.finances.months || [])].sort((a, b) => b.id.localeCompare(a.id));
+  const activeMonths = financeShowArchived ? allMonths : allMonths.filter(m => !m.archived);
+  
+  // Filtragem e ordenação das despesas
+  let expenses = [...(curMonth?.expenses || [])];
+  
+  // Pesquisa por texto
+  if (financeSearch.trim()) {
+    const q = financeSearch.trim().toLowerCase();
+    expenses = expenses.filter(e => {
+      const cat = getCategory(e.category);
+      return (e.name || '').toLowerCase().includes(q) ||
+        (e.notes || '').toLowerCase().includes(q) ||
+        (e.paymentMethod || '').toLowerCase().includes(q) ||
+        (cat.name || '').toLowerCase().includes(q) ||
+        (e.installments || '').toLowerCase().includes(q);
+    });
+  }
+
+  // Filtro por status
+  if (financeStatusFilter === 'pagos') {
+    expenses = expenses.filter(e => calculateExpenseStatus(e) === 'pago');
+  } else if (financeStatusFilter === 'pendentes') {
+    expenses = expenses.filter(e => calculateExpenseStatus(e) === 'pendente');
+  } else if (financeStatusFilter === 'vencidos') {
+    expenses = expenses.filter(e => calculateExpenseStatus(e) === 'vencido');
+  }
+
+  // Filtro por categoria
+  if (financeCategoryFilter && financeCategoryFilter !== 'todas') {
+    expenses = expenses.filter(e => e.category === financeCategoryFilter);
+  }
+
+  // Ordenação
+  expenses.sort((a, b) => {
+    if (financeSort === 'maior_valor') return (Number(b.amount) || 0) - (Number(a.amount) || 0);
+    if (financeSort === 'menor_valor') return (Number(a.amount) || 0) - (Number(b.amount) || 0);
+    if (financeSort === 'nome') return (a.name || '').localeCompare(b.name || '');
+    // Padrão: Vencimento (não pagas primeiro, mais próximas primeiro)
+    const isPaidA = calculateExpenseStatus(a) === 'pago';
+    const isPaidB = calculateExpenseStatus(b) === 'pago';
+    if (isPaidA !== isPaidB) return isPaidA ? 1 : -1;
+    return (a.dueDate || '').localeCompare(b.dueDate || '');
+  });
+
+  // Distribuição de gastos por categoria
+  const catDistributionHTML = categories
+    .filter(c => (summary.catTotals[c.id] || 0) > 0)
+    .sort((a, b) => (summary.catTotals[b.id] || 0) - (summary.catTotals[a.id] || 0))
+    .map(c => {
+      const val = summary.catTotals[c.id] || 0;
+      const pct = summary.total > 0 ? Math.round((val / summary.total) * 100) : 0;
+      return `<div class="cat-pill" title="${esc(c.name)}: ${money(val)} (${pct}%)">
+        <i style="background:${c.color}"></i>
+        <span>${c.icon} ${esc(c.name)}: <b>${money(val)}</b> <small style="opacity:.7">(${pct}%)</small></span>
+      </div>`;
+    }).join('');
+
+  return `
+    <!-- Cabeçalho do Mês e Ações -->
+    <div class="finance-head">
+      <div class="month-selector-bar">
+        <button type="button" class="ico sm" data-act="prevMonth" title="Mês anterior">‹</button>
+        <select data-chg="switchMonth" aria-label="Mês selecionado">
+          ${activeMonths.map(m => `
+            <option value="${m.id}" ${m.id === curMonth?.id ? 'selected' : ''}>
+              📅 ${esc(m.name)}${m.archived ? ' (Arquivado)' : ''}
+            </option>
+          `).join('')}
+        </select>
+        <button type="button" class="ico sm" data-act="nextMonth" title="Próximo mês">›</button>
+      </div>
+
+      <div class="row" style="gap:.4rem;flex-wrap:wrap">
+        <button type="button" class="pri sm" data-act="openNewExpense"><b>+ Nova Despesa</b></button>
+        <button type="button" class="ghost sm" data-act="openNewMonth"><b>+ Novo Mês</b></button>
+        <button type="button" class="ghost sm" data-act="openCopyRecurrent">📋 Copiar Recorrentes</button>
+        <button type="button" class="ghost sm" data-act="openCatManager">🏷️ Categorias</button>
+        <button type="button" class="ghost sm" data-act="openMonthManager">⚙️ Gerenciar Mês</button>
+        <button type="button" class="ghost sm" data-act="exportFinanceCsv" title="Exportar para planilha Excel / CSV">📥 Exportar</button>
+      </div>
+    </div>
+
+    <!-- Indicador se o mês estiver arquivado -->
+    ${curMonth?.archived ? `
+      <div class="card warn" style="margin-bottom:.8rem;padding:.6rem .8rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem">
+        <span>📦 <b>Este mês está arquivado.</b> O histórico continua seguro e preservado.</span>
+        <button type="button" class="ghost sm" data-act="unarchiveMonth" data-id="${curMonth.id}">Desarquivar</button>
+      </div>
+    ` : ''}
+
+    <!-- 4 Cards de Resumo Mensal Automático -->
+    <div class="finance-stats">
+      <div class="stat-kpi total">
+        <div class="stat-kpi-head">
+          <span>Total Despesas</span>
+          <span>💵</span>
+        </div>
+        <div class="stat-kpi-val">${money(summary.total)}</div>
+        <div class="stat-kpi-sub">${summary.countTotal} despesa(s) no mês</div>
+      </div>
+
+      <div class="stat-kpi paid">
+        <div class="stat-kpi-head">
+          <span>Total Pago</span>
+          <span>✅</span>
+        </div>
+        <div class="stat-kpi-val">${money(summary.totalPaid)}</div>
+        <div class="stat-kpi-sub">${summary.countPaid} paga(s) (${summary.pctPaid}%)</div>
+      </div>
+
+      <div class="stat-kpi pending">
+        <div class="stat-kpi-head">
+          <span>Total Pendente</span>
+          <span>⏳</span>
+        </div>
+        <div class="stat-kpi-val">${money(summary.totalPending)}</div>
+        <div class="stat-kpi-sub">${summary.countPending} conta(s) a pagar</div>
+      </div>
+
+      <div class="stat-kpi overdue">
+        <div class="stat-kpi-head">
+          <span>Total Vencido</span>
+          <span>⚠️</span>
+        </div>
+        <div class="stat-kpi-val">${money(summary.totalOverdue)}</div>
+        <div class="stat-kpi-sub">${summary.countOverdue} conta(s) em atraso</div>
+      </div>
+    </div>
+
+    <!-- Barra de Progresso de Pagamentos e Distribuição -->
+    <div class="finance-progress-wrap">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:.82rem;flex-wrap:wrap;gap:.3rem">
+        <span><b>Quitação do Mês:</b> ${summary.pctPaid}% do valor pago (${summary.countPaid} de ${summary.countTotal} contas)</span>
+        <span><b>${money(summary.totalPaid)}</b> de <b>${money(summary.total)}</b></span>
+      </div>
+      <div class="bar"><i style="width:${summary.pctPaid}%"></i></div>
+      
+      ${catDistributionHTML ? `
+        <div style="margin-top:.6rem">
+          <small class="muted" style="font-weight:600">Distribuição por Categoria:</small>
+          <div class="category-distrib">${catDistributionHTML}</div>
+        </div>
+      ` : ''}
+    </div>
+
+    <!-- Barra de Busca e Filtros -->
+    <section class="card" style="padding:.9rem">
+      <div class="expense-toolbar">
+        <div class="search-box" style="margin-bottom:0">
+          <span style="font-size:1.1rem;opacity:.7">🔍</span>
+          <input type="text" id="financeSearchInput" placeholder="Pesquisar por nome, categoria, forma de pagamento, observação..."
+            value="${esc(financeSearch)}" data-inp="financesearch" autocomplete="off">
+          ${financeSearch ? `<button type="button" class="search-clear" data-act="clearFinanceSearch" title="Limpar pesquisa">✕</button>` : ''}
+        </div>
+
+        <div class="expense-tools-row">
+          <!-- Filtro por Status -->
+          <div class="chips" style="margin:0;flex:1">
+            ${[
+              ['todas', 'Todas (' + summary.countTotal + ')'],
+              ['pendentes', 'Pendentes (' + summary.countPending + ')'],
+              ['vencidos', 'Vencidas (' + summary.countOverdue + ')'],
+              ['pagos', 'Pagas (' + summary.countPaid + ')']
+            ].map(([k, lbl]) => `
+              <button type="button" class="${financeStatusFilter === k ? 'on' : ''}" data-act="setFinanceStatus" data-v="${k}">${lbl}</button>
+            `).join('')}
+          </div>
+
+          <!-- Filtro por Categoria -->
+          <select data-chg="setFinanceCategory" style="min-width:140px">
+            <option value="todas" ${financeCategoryFilter === 'todas' ? 'selected' : ''}>Todas as Categorias</option>
+            ${categories.map(c => `
+              <option value="${c.id}" ${financeCategoryFilter === c.id ? 'selected' : ''}>${c.icon} ${esc(c.name)}</option>
+            `).join('')}
+          </select>
+
+          <!-- Ordenação -->
+          <select data-chg="setFinanceSort" style="min-width:130px">
+            <option value="vencimento" ${financeSort === 'vencimento' ? 'selected' : ''}>📅 Vencimento</option>
+            <option value="maior_valor" ${financeSort === 'maior_valor' ? 'selected' : ''}>💲 Maior Valor</option>
+            <option value="menor_valor" ${financeSort === 'menor_valor' ? 'selected' : ''}>🪙 Menor Valor</option>
+            <option value="nome" ${financeSort === 'nome' ? 'selected' : ''}>🔤 Nome (A-Z)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Lista de Despesas -->
+      <div style="margin-top:.6rem">
+        ${expenses.length ? `
+          <div class="expense-list">
+            ${expenses.map(e => {
+              const cat = getCategory(e.category);
+              const st = calculateExpenseStatus(e);
+              const isPaid = st === 'pago';
+              const isOverdue = st === 'vencido';
+
+              return `
+                <div class="expense-item">
+                  <div class="expense-icon-circle" style="background:${cat.color}" title="${esc(cat.name)}">
+                    ${cat.icon}
+                  </div>
+
+                  <div class="expense-main">
+                    <div class="expense-name-row">
+                      <span class="expense-name">${esc(e.name)}</span>
+                      <span class="category-badge" style="background:${cat.color}22;color:${cat.color};font-size:.72rem;padding:.12rem .5rem;border-radius:10px;font-weight:600">
+                        ${cat.icon} ${esc(cat.name)}
+                      </span>
+                      ${e.recurrent ? '<span class="badge-recurrent" title="Despesa recorrente mensal">🔁 Recorrente</span>' : ''}
+                      ${e.installments ? `<span class="badge-installment" title="Parcelamento">📦 ${esc(e.installments)}</span>` : ''}
+                    </div>
+
+                    <div class="expense-meta">
+                      <span>📅 Vence: <b>${fmtShort(e.dueDate)}</b>${!isPaid && isOverdue ? ' <b style="color:#c62828">(Vencida!)</b>' : ''}</span>
+                      ${isPaid && e.paidDate ? `<span>✅ Pago em: <b>${fmtShort(e.paidDate)}</b></span>` : ''}
+                      ${e.paymentMethod ? `<span>💳 ${esc(e.paymentMethod)}</span>` : ''}
+                      ${e.notes ? `<span>💬 ${esc(e.notes)}</span>` : ''}
+                      ${e.link ? `<span>🔗 <a href="${esc(e.link)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">Comprovante</a></span>` : ''}
+                    </div>
+                  </div>
+
+                  <div class="expense-right">
+                    <div class="expense-amount" style="${isPaid ? 'color:#2e7d32' : (isOverdue ? 'color:#c62828' : '')}">${money(e.amount)}</div>
+                    <span class="expense-status-tag ${st}">
+                      ${st === 'pago' ? 'Pago ✓' : (st === 'vencido' ? 'Vencido ⚠️' : 'Pendente ⏳')}
+                    </span>
+
+                    <div class="expense-actions">
+                      <button type="button" class="btn-toggle-paid ${isPaid ? 'is-paid' : ''}" data-act="toggleExpensePaid" data-id="${e.id}" title="${isPaid ? 'Desmarcar pagamento' : 'Marcar como pago'}">
+                        ${isPaid ? '✓ Pago' : 'Pagar'}
+                      </button>
+                      <button type="button" class="ico sm" data-act="editExpense" data-id="${e.id}" title="Editar despesa">✏️</button>
+                      <button type="button" class="dng sm" data-act="delExpense" data-id="${e.id}" title="Excluir despesa">🗑</button>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : `
+          <div style="text-align:center;padding:2rem 1rem">
+            <span style="font-size:2.4rem;display:block;margin-bottom:.4rem">🧾</span>
+            <b style="font-size:1.05rem">Nenhuma despesa encontrada</b>
+            <p class="note" style="margin:.4rem 0 1rem">
+              ${financeSearch ? 'Nenhuma despesa corresponde à pesquisa ou aos filtros.' : 'Este mês ainda não possui despesas cadastradas.'}
+            </p>
+            <div class="row" style="justify-content:center;gap:.6rem">
+              <button type="button" class="pri sm" data-act="openNewExpense">+ Adicionar Despesa</button>
+              <button type="button" class="ghost sm" data-act="openCopyRecurrent">📋 Copiar de Mês Anterior</button>
+            </div>
+          </div>
+        `}
+      </div>
+    </section>
+  `;
 };
 
 // Vista: CHECKLIST com Pesquisa por Nome e Data
@@ -1397,11 +2270,125 @@ const A = {
     toast('Item excluído da checklist ✓');
   },
   checkclear: () => {
-    const doneCount = (D.checklist || []).filter(c => c.done).length;
+    const list = D.checklist || [];
+    const doneCount = list.filter(c => c.done).length;
     if (!doneCount) return toast('Nenhuma tarefa concluída para limpar.');
     mutate(d => { d.checklist = (d.checklist || []).filter(c => !c.done); });
     toast('Tarefas concluídas removidas ✓');
   },
+
+  // Ações de Finanças e Gastos Mensais
+  openNewExpense: () => { openExpenseModal(null); },
+  editExpense: el => { openExpenseModal(el.dataset.id); },
+  delExpense: el => {
+    const curMonth = getActiveMonth();
+    if (!curMonth) return;
+    mutate(d => {
+      const m = d.finances.months.find(x => x.id === curMonth.id);
+      if (m) m.expenses = (m.expenses || []).filter(e => e.id !== el.dataset.id);
+    });
+    toast('Despesa excluída ✓');
+  },
+  toggleExpensePaid: el => {
+    const curMonth = getActiveMonth();
+    if (!curMonth) return;
+    const exp = (curMonth.expenses || []).find(e => e.id === el.dataset.id);
+    if (!exp) return;
+    const wasPaid = exp.status === 'pago';
+    mutate(d => {
+      const m = d.finances.months.find(x => x.id === curMonth.id);
+      const item = m ? (m.expenses || []).find(x => x.id === exp.id) : null;
+      if (item) {
+        if (wasPaid) {
+          item.status = 'pendente';
+          item.paidDate = '';
+        } else {
+          item.status = 'pago';
+          item.paidDate = today();
+        }
+      }
+    });
+    toast(wasPaid ? 'Despesa marcada como pendente' : 'Despesa marcada como paga ✓');
+  },
+  openNewMonth: () => { openNewMonthModal(); },
+  openMonthManager: () => { openManageMonthModal(); },
+  openCatManager: () => { openCategoriesModal(); },
+  openCopyRecurrent: () => { openCopyRecurrentModal(); },
+  exportFinanceCsv: () => { exportFinanceCsv(); },
+  prevMonth: () => {
+    initFinances();
+    const all = D.finances.months.filter(m => !m.archived);
+    if (!all.length) return;
+    const idx = all.findIndex(m => m.id === D.finances.activeMonthId);
+    if (idx > 0) {
+      D.finances.activeMonthId = all[idx - 1].id;
+      render();
+    } else {
+      toast('Este é o primeiro mês cadastrado.');
+    }
+  },
+  nextMonth: () => {
+    initFinances();
+    const all = D.finances.months.filter(m => !m.archived);
+    if (!all.length) return;
+    const idx = all.findIndex(m => m.id === D.finances.activeMonthId);
+    if (idx >= 0 && idx < all.length - 1) {
+      D.finances.activeMonthId = all[idx + 1].id;
+      render();
+    } else {
+      toast('Este é o último mês cadastrado.');
+    }
+  },
+  clearFinanceSearch: () => {
+    financeSearch = '';
+    render();
+    const inp = $('#financeSearchInput');
+    if (inp) inp.focus();
+  },
+  setFinanceStatus: el => {
+    financeStatusFilter = el.dataset.v;
+    render();
+  },
+  unarchiveMonth: el => {
+    mutate(d => {
+      const m = (d.finances.months || []).find(x => x.id === el.dataset.id);
+      if (m) m.archived = false;
+    });
+    toast('Mês desarquivado com sucesso ✓');
+  },
+  delMonth: el => {
+    const id = el.dataset.id;
+    if (!confirm('Deseja realmente excluir este mês e todas as despesas associadas?')) return;
+    mutate(d => {
+      d.finances.months = (d.finances.months || []).filter(m => m.id !== id);
+      if (d.finances.activeMonthId === id) {
+        d.finances.activeMonthId = d.finances.months[0]?.id || '';
+      }
+    });
+    closeModal();
+    toast('Mês excluído ✓');
+  },
+  delCategory: el => {
+    const catId = el.dataset.id;
+    if (catId === 'outros') return toast('A categoria Outras despesas não pode ser excluída.');
+    mutate(d => {
+      d.finances.categories = (d.finances.categories || []).filter(c => c.id !== catId);
+      (d.finances.months || []).forEach(m => {
+        (m.expenses || []).forEach(e => {
+          if (e.category === catId) e.category = 'outros';
+        });
+      });
+    });
+    openCategoriesModal();
+    toast('Categoria removida e despesas reatribuídas para Outros ✓');
+  },
+  pickEmoji: el => {
+    const em = el.dataset.e;
+    const inp = $('#catIconInput');
+    if (inp) inp.value = em;
+    $$('.emoji-btn').forEach(b => b.classList.toggle('on', b.dataset.e === em));
+  },
+  openOAuthHelp: () => { openOAuthHelpModal(); },
 
   // Ações de Usuário e Configurações
   toggleUserMenu: () => {
@@ -1423,12 +2410,13 @@ const A = {
       if (e.code === 'auth/popup-blocked') {
         showOpenExternalLoginModal();
       } else if (e.code === 'auth/cancelled-popup-request' || e.code === 'auth/popup-closed-by-user') {
-        toast('Janela de login fechada.');
+        toast('Janela de login fechada pelo usuário.');
       } else if (e.code === 'auth/unauthorized-domain') {
-        toast('Domínio precisa ser autorizado no Firebase Console.');
+        openOAuthHelpModal();
+        toast('Domínio precisa ser autorizado no Firebase/Google Console.');
       } else {
-        toast(`Erro de login: ${e.code || e.message || 'tente abrir em nova aba'}`);
-        showOpenExternalLoginModal();
+        openOAuthHelpModal();
+        toast(`Erro de login: ${e.code || e.message || 'Verifique as origens autorizadas'}`);
       }
     }
   },
@@ -1437,21 +2425,23 @@ const A = {
       if (window.firebaseBridge) {
         await window.firebaseBridge.logout();
       }
+    } catch (e) {
+      console.warn('Erro ao sair:', e);
+    } finally {
       currentUser = null;
       userMenuOpen = false;
       const dropdown = $('#userDropdown');
       if (dropdown) dropdown.hidden = true;
+      closeModal();
       updateAccountUI();
       render();
       toast('Desconectado com sucesso ✓');
-    } catch (e) {
-      toast('Erro ao sair: ' + (e.message || 'desconhecido'));
     }
   },
   openSettings: () => { openSettingsModal(); },
   closeModal: () => { closeModal(); },
   backdropClose: (el, e) => {
-    if (e.target.classList.contains('modal-backdrop')) {
+    if (e.target === el) {
       closeModal();
     }
   },
@@ -1463,19 +2453,56 @@ const A = {
   pickPalette: el => {
     const c = el.dataset.c;
     applyTheme(c, true);
-    openSettingsModal();
+    const colorInput = $('#themeColorInput');
+    const hexDisplay = $('#themeHexDisplay');
+    const rgb = hexToRgb(c);
+    if (colorInput) colorInput.value = c;
+    if (hexDisplay) hexDisplay.textContent = c.toUpperCase();
+    const sliderR = $('#sliderR'); if (sliderR) sliderR.value = rgb.r;
+    const sliderG = $('#sliderG'); if (sliderG) sliderG.value = rgb.g;
+    const sliderB = $('#sliderB'); if (sliderB) sliderB.value = rgb.b;
+    const valR = $('#valR'); if (valR) valR.textContent = rgb.r;
+    const valG = $('#valG'); if (valG) valG.textContent = rgb.g;
+    const valB = $('#valB'); if (valB) valB.textContent = rgb.b;
+    $$('.swatch-btn').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === c.toLowerCase()));
     toast('Cor alterada ✓');
   },
   pickFont: el => {
     const f = el.dataset.f;
     applyFont(f, true);
-    openSettingsModal();
+    $$('.font-option').forEach(opt => {
+      const isSel = opt.dataset.f === f;
+      opt.classList.toggle('on', isSel);
+      const mark = opt.querySelector('.check-mark');
+      if (mark) mark.textContent = isSel ? '✓' : '';
+    });
+    const preview = $('#fontPreviewBox');
+    if (preview && FONTS[f]) preview.style.fontFamily = FONTS[f].stack;
     toast('Fonte alterada ✓');
   },
   resetAppearance: () => {
     applyTheme('#8e4585', true);
     applyFont('system-ui', true);
-    openSettingsModal();
+    const colorInput = $('#themeColorInput');
+    const hexDisplay = $('#themeHexDisplay');
+    const rgb = hexToRgb('#8e4585');
+    if (colorInput) colorInput.value = '#8e4585';
+    if (hexDisplay) hexDisplay.textContent = '#8E4585';
+    const sliderR = $('#sliderR'); if (sliderR) sliderR.value = rgb.r;
+    const sliderG = $('#sliderG'); if (sliderG) sliderG.value = rgb.g;
+    const sliderB = $('#sliderB'); if (sliderB) sliderB.value = rgb.b;
+    const valR = $('#valR'); if (valR) valR.textContent = rgb.r;
+    const valG = $('#valG'); if (valG) valG.textContent = rgb.g;
+    const valB = $('#valB'); if (valB) valB.textContent = rgb.b;
+    $$('.swatch-btn').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === '#8e4585'));
+    $$('.font-option').forEach(opt => {
+      const isSel = opt.dataset.f === 'system-ui';
+      opt.classList.toggle('on', isSel);
+      const mark = opt.querySelector('.check-mark');
+      if (mark) mark.textContent = isSel ? '✓' : '';
+    });
+    const preview = $('#fontPreviewBox');
+    if (preview) preview.style.fontFamily = FONTS['system-ui'].stack;
     toast('Aparência padrão restaurada ✓');
   }
 };
@@ -1492,6 +2519,19 @@ const C = {
     const i = (d.checklist || []).find(x => x.id === el.dataset.id);
     if (i) i.done = el.checked;
   }),
+  switchMonth: el => {
+    initFinances();
+    D.finances.activeMonthId = el.value;
+    render();
+  },
+  setFinanceCategory: el => {
+    financeCategoryFilter = el.value;
+    render();
+  },
+  setFinanceSort: el => {
+    financeSort = el.value;
+    render();
+  },
   pilltaken: el => mutate(d => { d.pill.taken[today()] = el.checked; }),
   notiftoggle: el => mutate(d => {
     if (!d.notifSettings) d.notifSettings = { agenda: true, checklist: true, ciclo: true, habitos: true };
@@ -1563,6 +2603,167 @@ const S = {
     render();
     toast('Tarefa alterada ✓');
   },
+  saveExpenseForm: (fd, f) => {
+    initFinances();
+    const curMonth = getActiveMonth();
+    if (!curMonth) return toast('Nenhum mês ativo.');
+    const id = f.dataset.id;
+    const name = (fd.get('name') || '').trim();
+    if (!name) return;
+    const amount = Number(fd.get('amount')) || 0;
+    const category = fd.get('category') || 'outros';
+    const dueDate = fd.get('dueDate') || today();
+    const status = fd.get('status') || 'pendente';
+    const paidDate = fd.get('paidDate') || (status === 'pago' ? today() : '');
+    const paymentMethod = fd.get('paymentMethod') || 'Pix';
+    const recurrent = fd.get('recurrent') === 'on';
+    const installments = (fd.get('installments') || '').trim();
+    const link = (fd.get('link') || '').trim();
+    const notes = (fd.get('notes') || '').trim();
+
+    mutate(d => {
+      const m = d.finances.months.find(x => x.id === curMonth.id);
+      if (!m) return;
+      if (!m.expenses) m.expenses = [];
+      if (id) {
+        const item = m.expenses.find(x => x.id === id);
+        if (item) {
+          item.name = name;
+          item.amount = amount;
+          item.category = category;
+          item.dueDate = dueDate;
+          item.status = status;
+          item.paidDate = paidDate;
+          item.paymentMethod = paymentMethod;
+          item.recurrent = recurrent;
+          item.installments = installments;
+          item.link = link;
+          item.notes = notes;
+        }
+      } else {
+        m.expenses.push({
+          id: uid(),
+          name,
+          amount,
+          category,
+          dueDate,
+          status,
+          paidDate,
+          paymentMethod,
+          recurrent,
+          installments,
+          link,
+          notes,
+          createdAt: Date.now()
+        });
+      }
+    });
+    closeModal();
+    toast(id ? 'Despesa atualizada ✓' : 'Despesa adicionada com sucesso ✓');
+  },
+  saveNewMonthForm: fd => {
+    initFinances();
+    const mId = fd.get('monthId') || today().slice(0, 7);
+    const name = (fd.get('name') || '').trim() || formatMonthName(mId);
+    const copyRecurrent = fd.get('copyRecurrent') === 'on';
+
+    mutate(d => {
+      let existing = (d.finances.months || []).find(m => m.id === mId);
+      if (existing) {
+        existing.name = name;
+        existing.archived = false;
+        d.finances.activeMonthId = mId;
+      } else {
+        const prev = getActiveMonth();
+        const copiedExpenses = [];
+        if (copyRecurrent && prev && prev.expenses) {
+          prev.expenses.filter(e => e.recurrent).forEach(e => {
+            const dayPart = (e.dueDate || '').slice(8) || '10';
+            copiedExpenses.push({
+              ...e,
+              id: uid(),
+              dueDate: `${mId}-${dayPart}`,
+              paidDate: '',
+              status: 'pendente',
+              createdAt: Date.now()
+            });
+          });
+        }
+
+        d.finances.months.push({
+          id: mId,
+          name,
+          archived: false,
+          createdAt: Date.now(),
+          expenses: copiedExpenses
+        });
+        d.finances.activeMonthId = mId;
+      }
+    });
+    closeModal();
+    toast(`Mês ${name} ativado com sucesso ✓`);
+  },
+  saveEditMonthForm: (fd, f) => {
+    initFinances();
+    const id = f.dataset.id;
+    const name = (fd.get('name') || '').trim();
+    const archived = fd.get('archived') === 'on';
+
+    mutate(d => {
+      const m = (d.finances.months || []).find(x => x.id === id);
+      if (m) {
+        if (name) m.name = name;
+        m.archived = archived;
+      }
+    });
+    closeModal();
+    toast('Mês atualizado ✓');
+  },
+  saveNewCategoryForm: fd => {
+    initFinances();
+    const name = (fd.get('name') || '').trim();
+    if (!name) return;
+    const color = fd.get('color') || '#8e4585';
+    const icon = fd.get('icon') || '🏷️';
+    const catId = 'cat_' + uid();
+
+    mutate(d => {
+      if (!d.finances.categories) d.finances.categories = [];
+      d.finances.categories.push({ id: catId, name, icon, color });
+    });
+    openCategoriesModal();
+    toast(`Categoria "${name}" criada ✓`);
+  },
+  executeCopyRecurrentForm: fd => {
+    initFinances();
+    const curMonth = getActiveMonth();
+    if (!curMonth) return;
+    const srcId = fd.get('sourceMonthId');
+    const srcMonth = (D.finances.months || []).find(m => m.id === srcId);
+    if (!srcMonth) return toast('Mês de origem não encontrado.');
+
+    const recurrents = (srcMonth.expenses || []).filter(e => e.recurrent);
+    if (!recurrents.length) return toast('O mês selecionado não tem despesas recorrentes.');
+
+    mutate(d => {
+      const target = d.finances.months.find(m => m.id === curMonth.id);
+      if (!target) return;
+      if (!target.expenses) target.expenses = [];
+      recurrents.forEach(e => {
+        const dayPart = (e.dueDate || '').slice(8) || '10';
+        target.expenses.push({
+          ...e,
+          id: uid(),
+          dueDate: `${curMonth.id}-${dayPart}`,
+          paidDate: '',
+          status: 'pendente',
+          createdAt: Date.now()
+        });
+      });
+    });
+    closeModal();
+    toast(`${recurrents.length} despesa(s) recorrente(s) copiadas para ${curMonth.name} ✓`);
+  },
   addRoutine: (fd, f) => {
     const days = fd.getAll('d').map(Number), name = (fd.get('name') || '').trim(); if (!name) return;
     mutate(d => d.routines[f.dataset.k].push({ id: uid(), name, reps: (fd.get('reps') || '').trim(), days: days.length ? days : [0, 1, 2, 3, 4, 5, 6] }));
@@ -1616,6 +2817,18 @@ document.addEventListener('input', e => {
     checkSearch = el.value;
     render();
     const inp = $('#checklistSearchInput');
+    if (inp) {
+      inp.focus();
+      inp.selectionStart = inp.selectionEnd = inp.value.length;
+    }
+    return;
+  }
+
+  // Pesquisa nos gastos em tempo real com preservação de foco
+  if (el.dataset.inp === 'financesearch') {
+    financeSearch = el.value;
+    render();
+    const inp = $('#financeSearchInput');
     if (inp) {
       inp.focus();
       inp.selectionStart = inp.selectionEnd = inp.value.length;
